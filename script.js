@@ -14,10 +14,13 @@ let gameConfig = {
 let gameState = {
   currentRound: 1,
   phase: 'setup', // 'setup', 'input', 'reveal', 'meltdown_check', 'game_over'
-  activeHumanIndex: -1, // Index of human player currently choosing
+  activeHumanIndex: -1, // DEPRECATED in multiplayer
   history: [],
   winnerId: null
 };
+
+let peerToPlayerMap = {}; // mapping of peerId -> playerId
+let myPlayerId = 1; // Default to Host (Player 1)
 
 // DOM Elements
 const screens = {
@@ -89,13 +92,97 @@ function initApp() {
     
     window.Network.events.onClientConnected = (peerId, count) => {
       document.getElementById('connected-players-count').textContent = count;
-      // You can expand this later to assign players to nodes
+    };
+    
+    window.Network.events.onClientInput = (peerId, data) => {
+      if (window.Network.getMode() !== 'host') return;
+      const pId = peerToPlayerMap[peerId];
+      if (pId) {
+        const player = gameConfig.players.find(p => p.id === pId);
+        if (player && player.isAlive) {
+          player.lastChoice = data.choice;
+          checkAllInputsReceived();
+        }
+      }
     };
     
     window.Network.events.onStateUpdate = (payload) => {
-      // Received game state from host!
       console.log("Got state from host", payload);
-      // Here you would update your UI to match payload
+      gameConfig = payload.gameConfig;
+      gameState = payload.gameState;
+      peerToPlayerMap = payload.peerToPlayerMap;
+      
+      const myPeerId = window.Network.getPeerId();
+      myPlayerId = peerToPlayerMap[myPeerId] || null;
+      
+      renderActiveRulesTags();
+      renderArenaNodeCards();
+      resetScalePlot();
+      
+      if (gameState.history.length > 0) {
+          const lastRound = gameState.history[gameState.history.length - 1];
+          lcdAverage.textContent = lastRound.average.toFixed(2);
+          lcdTarget.textContent = lastRound.target.toFixed(2);
+      }
+      roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
+      renderLogs();
+      
+      if (gameState.phase === 'input') {
+        if (myPlayerId) {
+           const me = gameConfig.players.find(p => p.id === myPlayerId);
+           if (me && me.isAlive && me.lastChoice === null) {
+              turnPlayerName.textContent = me.name;
+              btnAccessConfirm.style.display = 'block';
+              turnPrompt.style.display = 'block';
+              turnInputControls.style.display = 'none';
+              nodeInputSlider.value = 50;
+              sliderValDisplay.textContent = 50;
+              switchScreen('turn');
+           } else {
+              arenaInstructions.textContent = "Waiting for other nodes to lock inputs...";
+              switchScreen('arena');
+           }
+        } else {
+           arenaInstructions.textContent = "Waiting for nodes to lock inputs... (Spectating)";
+           switchScreen('arena');
+        }
+      } else if (gameState.phase === 'reveal' || gameState.phase === 'meltdown_check') {
+         arenaInstructions.textContent = "Host is evaluating results...";
+         btnArenaAction.style.display = 'none';
+         
+         if (gameState.history.length > 0) {
+            const lastRound = gameState.history[gameState.history.length - 1];
+            gameConfig.players.forEach(p => {
+              if (!p.isAlive) return;
+              const badge = document.getElementById(`node-val-${p.id}`);
+              const pChoice = lastRound.choices[p.name];
+              const isDq = lastRound.disqualifiedIds.includes(p.id);
+              const isWinner = lastRound.winnerId === p.id;
+              
+              if (isDq) {
+                 badge.textContent = `DQ (${pChoice})`;
+                 badge.className = 'node-value-badge disqualified';
+              } else if (isWinner) {
+                 badge.textContent = pChoice.toString();
+                 badge.className = 'node-value-badge winner green-glow';
+              } else {
+                 badge.textContent = pChoice.toString();
+                 badge.className = 'node-value-badge revealed';
+              }
+            });
+            plotScaleResults(
+              gameConfig.players.filter(p => !lastRound.disqualifiedIds.includes(p.id) && p.isAlive && lastRound.choices[p.name] !== null).map(p => ({id: p.id, choice: lastRound.choices[p.name]})), 
+              lastRound.target, 
+              lastRound.disqualifiedIds
+            );
+         }
+         switchScreen('arena');
+      } else if (gameState.phase === 'game_over') {
+         const survivors = gameConfig.players.filter(p => p.isAlive);
+         declareGameOver(survivors);
+      } else {
+         switchScreen(gameState.phase);
+      }
     };
   }
   
@@ -430,6 +517,22 @@ function startGame() {
   lcdTarget.textContent = '--.--';
 
   switchScreen('arena');
+  
+  if (window.Network && window.Network.getMode() === 'host') {
+    // Map connected peers to human slots
+    const peers = window.Network.getConnectedPeers();
+    let peerIndex = 0;
+    myPlayerId = gameConfig.players[0].id; // Host is Player 1
+    
+    for (let i = 1; i < gameConfig.players.length; i++) {
+       if (gameConfig.players[i].type === 'human' && peerIndex < peers.length) {
+          peerToPlayerMap[peers[peerIndex]] = gameConfig.players[i].id;
+          gameConfig.players[i].name = "Remote Node " + (peerIndex + 1);
+          peerIndex++;
+       }
+    }
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
 
   // Start tension music
   if (!audioMuted && window.quantumAudio) {
@@ -602,38 +705,68 @@ function handleArenaAction() {
 
 // Cycle through human inputs and AI choices
 function gatherNextInput() {
-  // Find the next active human player who hasn't input a choice yet
-  const nextHumanIndex = gameConfig.players.findIndex((p, idx) => 
-    p.isAlive && p.type === 'human' && p.lastChoice === null && idx > gameState.activeHumanIndex
-  );
-
-  if (nextHumanIndex !== -1) {
-    // Open Secret turn modal
-    gameState.activeHumanIndex = nextHumanIndex;
-    const player = gameConfig.players[nextHumanIndex];
+  if (window.Network && window.Network.getMode() === 'host') {
+    // Multiplayer Simultaneous Turn
+    const hostPlayer = gameConfig.players.find(p => p.id === myPlayerId);
     
-    // Reset Turn UI
-    turnPlayerName.textContent = player.name;
-    btnAccessConfirm.style.display = 'block';
-    turnPrompt.style.display = 'block';
-    turnInputControls.style.display = 'none';
-    nodeInputSlider.value = 50;
-    sliderValDisplay.textContent = 50;
-
-    switchScreen('turn');
+    if (hostPlayer && hostPlayer.isAlive && hostPlayer.lastChoice === null) {
+      turnPlayerName.textContent = hostPlayer.name;
+      btnAccessConfirm.style.display = 'block';
+      turnPrompt.style.display = 'block';
+      turnInputControls.style.display = 'none';
+      nodeInputSlider.value = 50;
+      sliderValDisplay.textContent = 50;
+      switchScreen('turn');
+    } else {
+      arenaInstructions.textContent = "Waiting for network nodes to lock inputs...";
+      btnArenaAction.style.display = 'none';
+    }
+    
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+    checkAllInputsReceived(); // In case host is the only human and already inputted
+    
   } else {
-    // All human choices collected. Now compute AI selections.
+    // Local Hotseat Sequential Turn
+    const nextHumanIndex = gameConfig.players.findIndex((p, idx) => 
+      p.isAlive && p.type === 'human' && p.lastChoice === null && idx > gameState.activeHumanIndex
+    );
+
+    if (nextHumanIndex !== -1) {
+      // Open Secret turn modal
+      gameState.activeHumanIndex = nextHumanIndex;
+      const player = gameConfig.players[nextHumanIndex];
+      
+      // Reset Turn UI
+      turnPlayerName.textContent = player.name;
+      btnAccessConfirm.style.display = 'block';
+      turnPrompt.style.display = 'block';
+      turnInputControls.style.display = 'none';
+      nodeInputSlider.value = 50;
+      sliderValDisplay.textContent = 50;
+
+      switchScreen('turn');
+    } else {
+      // All human choices collected. Now compute AI selections.
+      checkAllInputsReceived();
+    }
+  }
+}
+
+function checkAllInputsReceived() {
+  if (window.Network && window.Network.getMode() === 'client') return; // Only host evaluates
+  
+  const allHumansInputted = gameConfig.players.every(p => 
+    !p.isAlive || p.type !== 'human' || p.lastChoice !== null
+  );
+  
+  if (allHumansInputted) {
     computeAIChoices();
-    
-    // Transition back to Arena screen
-    switchScreen('arena');
     gameState.phase = 'reveal';
-    
-    // Set UI to Ready for Evaluation
-    arenaInstructions.textContent = "All Node values successfully locked into buffer. Ready to execute dynamic calculation scale.";
+    switchScreen('arena');
+    arenaInstructions.textContent = "All Node values locked. Ready to execute dynamic calculation scale.";
     btnArenaAction.textContent = "Execute Evaluation";
     btnArenaAction.style.display = 'block';
-
+    
     // Update player cards status to "LOCKED"
     gameConfig.players.forEach(p => {
       if (p.isAlive) {
@@ -642,22 +775,45 @@ function gatherNextInput() {
         badge.className = 'node-value-badge locked';
       }
     });
+    
+    if (window.Network && window.Network.getMode() === 'host') {
+       window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+    }
   }
 }
 
 // Handle locking human input
 function handleLockInput() {
   const choice = parseInt(nodeInputSlider.value);
-  const player = gameConfig.players[gameState.activeHumanIndex];
-  
-  player.lastChoice = choice;
   playSelectSound();
-
-  // Reset to intermediate arena view
-  switchScreen('arena');
   
-  // Go to next human or trigger calculation
-  gatherNextInput();
+  if (window.Network && window.Network.getMode() === 'client') {
+    // Client sends choice to host
+    window.Network.sendInputToHost(choice);
+    
+    // Update local client UI
+    const me = gameConfig.players.find(p => p.id === myPlayerId);
+    if (me) me.lastChoice = choice;
+    
+    switchScreen('arena');
+    arenaInstructions.textContent = "Input locked. Waiting for other nodes...";
+    
+  } else if (window.Network && window.Network.getMode() === 'host') {
+    // Host locks own choice
+    const me = gameConfig.players.find(p => p.id === myPlayerId);
+    if (me) me.lastChoice = choice;
+    
+    switchScreen('arena');
+    arenaInstructions.textContent = "Input locked. Waiting for network nodes...";
+    gatherNextInput(); // Re-trigger check
+  } else {
+    // Local hotseat
+    const player = gameConfig.players[gameState.activeHumanIndex];
+    player.lastChoice = choice;
+    
+    switchScreen('arena');
+    gatherNextInput();
+  }
 }
 
 // AI Decision-Making Algorithms (Game Theory)
@@ -1001,6 +1157,10 @@ function evaluateRound() {
   // Transition Phase to meltdown checks
   gameState.phase = 'meltdown_check';
   btnArenaAction.textContent = "Process Core Meltdowns";
+  
+  if (window.Network && window.Network.getMode() === 'host') {
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
 }
 
 // Plot numbers on the visual slider scale
@@ -1103,6 +1263,10 @@ function prepareNextRoundOrFinish() {
       badge.textContent = p.isAlive ? 'WAITING' : 'OFFLINE';
       badge.className = p.isAlive ? 'node-value-badge' : 'node-value-badge disqualified';
     });
+    
+    if (window.Network && window.Network.getMode() === 'host') {
+      window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+    }
   }
 }
 
@@ -1130,6 +1294,11 @@ function declareGameOver(survivors) {
 
   playWarningSound();
   switchScreen('victory');
+  
+  gameState.phase = 'game_over';
+  if (window.Network && window.Network.getMode() === 'host') {
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
 }
 
 // Render dynamic round history logs in sidebar

@@ -133,5 +133,6 @@ window.Network = {
   sendInputToHost,
   events: netEvents,
   getMode: () => netMode,
-  getPeerId: () => myPeerId
+  getPeerId: () => myPeerId,
+  getConnectedPeers: () => clientConns.map(c => c.peer)
 };
