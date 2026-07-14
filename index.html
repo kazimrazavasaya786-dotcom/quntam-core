@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quantum Core: Stability Arena</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Audio Toggle Button -->
+  <button id="audio-toggle-btn" class="audio-toggle-btn" title="Toggle Sound">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="audio-icon-on"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+  </button>
+
+  <div class="container">
+    <header>
+      <h1>Quantum Core</h1>
+      <div class="subtitle">Stability Arena &bull; Game of Rationality</div>
+      <button id="btn-protocols" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.4rem 1.2rem; margin-top: 0.8rem; letter-spacing: 0.5px;">View Protocols</button>
+    </header>
+
+    <!-- 1. SETUP SCREEN -->
+    <div id="setup-screen" class="screen glass-panel setup-card active">
+      <div class="setup-section" id="mode-selection-section">
+        <h3>Game Mode</h3>
+        <div class="setup-row" style="justify-content: center; gap: 1rem; margin-bottom: 1rem;">
+          <button id="btn-mode-local" class="btn">Local Play</button>
+          <button id="btn-mode-host" class="btn btn-secondary">Host Online</button>
+          <button id="btn-mode-join" class="btn btn-secondary">Join Online</button>
+        </div>
+      </div>
+      
+      <!-- ONLINE JOIN LOBBY (Hidden by default) -->
+      <div id="online-join-section" class="setup-section" style="display: none; text-align: center;">
+        <h3>Join a Network</h3>
+        <div style="margin-top: 1rem;">
+          <input type="text" id="join-room-code" placeholder="Enter Room Code" style="width: 200px; text-align: center; font-size: 1.2rem; text-transform: uppercase;">
+          <button id="btn-join-room" class="btn" style="margin-top: 1rem; width: 200px;">Connect</button>
+        </div>
+        <div id="join-status-msg" style="color: var(--accent-orange); margin-top: 1rem; font-size: 0.9rem;"></div>
+      </div>
+
+      <!-- ONLINE HOST LOBBY (Hidden by default) -->
+      <div id="online-host-section" class="setup-section" style="display: none; text-align: center;">
+        <h3>Network Established</h3>
+        <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,229,255,0.1); border: 1px solid var(--accent-cyan); border-radius: 8px;">
+          <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase;">Room Code:</div>
+          <div id="host-room-code" style="font-size: 2rem; font-weight: bold; color: var(--accent-cyan); letter-spacing: 2px;">----</div>
+        </div>
+        <div style="margin-top: 1rem; font-size: 0.9rem;">
+          Waiting for players to connect... (<span id="connected-players-count">0</span> connected)
+        </div>
+      </div>
+
+      <!-- STANDARD SETUP (Hidden if joining) -->
+      <div id="standard-setup-sections">
+        <div class="setup-section">
+        <h3>1. Network Dimensions</h3>
+        <div class="setup-row">
+          <span class="node-label">Active Nodes:</span>
+          <button id="btn-nodes-4" class="btn btn-secondary" style="padding: 0.6rem 1.2rem;">4 Nodes</button>
+          <button id="btn-nodes-5" class="btn" style="padding: 0.6rem 1.2rem;">5 Nodes</button>
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>2. Node Registry</h3>
+        <div id="node-config-list" class="node-config-list">
+          <!-- JS will populate rows for players here -->
+        </div>
+      </div>
+
+      <div class="setup-section">
+        <h3>3. Protocol Overrides</h3>
+        <div class="rules-grid">
+          <!-- Rule 1 -->
+          <div class="rule-toggle-card enabled" id="rule-card-1">
+            <div class="rule-checkbox"></div>
+            <div class="rule-info">
+              <div class="rule-name">Disqualification Protocol</div>
+              <div class="rule-desc">If multiple nodes select the exact same value, they are immediately disqualified and receive a stability penalty.</div>
+            </div>
+          </div>
+          <!-- Rule 2 -->
+          <div class="rule-toggle-card enabled" id="rule-card-2">
+            <div class="rule-checkbox"></div>
+            <div class="rule-info">
+              <div class="rule-name">Precision Target Spike</div>
+              <div class="rule-desc">If a node hits the target value precisely, all other nodes suffer double stability depletion (-2 points).</div>
+            </div>
+          </div>
+          <!-- Rule 3 -->
+          <div class="rule-toggle-card enabled" id="rule-card-3">
+            <div class="rule-checkbox"></div>
+            <div class="rule-info">
+              <div class="rule-name">Quantum Zero-One Override</div>
+              <div class="rule-desc">In 1v1 shutdown mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div> <!-- End standard-setup-sections -->
+
+      <button id="btn-start-game" class="btn btn-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        Initialize Sequence
+      </button>
+    </div>
+
+    <!-- 2. SECRET TURN OVERLAY -->
+    <div id="turn-screen" class="turn-overlay" style="display: none;">
+      <div class="glass-panel turn-input-card">
+        <div class="turn-instruction">NODE INPUT CONFIGURATION</div>
+        <div class="turn-player-name" id="turn-player-name">Node 1</div>
+        <p class="pass-device-prompt" id="turn-prompt">
+          Please pass control to this administrator. Ensure all other administrators cannot view the input console.
+        </p>
+        <button id="btn-access-confirm" class="btn">Access Terminal</button>
+        
+        <div id="turn-input-controls" style="display: none; animation: fadeIn 0.3s ease-out;">
+          <div class="slider-container">
+            <div class="slider-val-display" id="slider-val-display">50</div>
+            <input type="range" id="node-input-slider" min="0" max="100" value="50">
+          </div>
+          <button id="btn-lock-input" class="btn btn-center">Lock Value</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. ARENA PLAY SCREEN -->
+    <div id="arena-screen" class="screen arena-grid">
+      <div class="arena-main">
+        <!-- Scale visualization -->
+        <div class="glass-panel scale-card">
+          <div class="scale-header">
+            <div class="scale-title">Dynamic Stability Scale</div>
+            <div class="lcd-readout">
+              <div>
+                <span style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">Average:</span>
+                <span class="lcd-value" id="lcd-average">--.--</span>
+              </div>
+              <div>
+                <span style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">Target (x0.8):</span>
+                <span class="lcd-value result" id="lcd-target">--.--</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="scale-track-container" id="scale-track-container">
+            <!-- Dynamic ticks generated in CSS/JS, and nodes plotted here -->
+            <div class="scale-ticks" id="scale-ticks"></div>
+            <div id="scale-plots"></div>
+          </div>
+        </div>
+
+        <!-- Nodes Display -->
+        <div id="nodes-container" class="nodes-container">
+          <!-- Dynamic node seats filled here -->
+        </div>
+      </div>
+
+      <div class="arena-sidebar">
+        <!-- Control / Action panel -->
+        <div class="glass-panel sidebar-card">
+          <div class="sidebar-title">Arena Controls</div>
+          <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+            <div id="round-number-lcd" style="font-family: var(--font-lcd); font-size: 1.1rem; color: var(--accent-cyan); text-align: center; background: #050608; border: 1px solid rgba(0,229,255,0.15); padding: 0.5rem; border-radius: 6px; text-transform: uppercase; font-weight: 700;">
+              Round 1
+            </div>
+            
+            <p id="arena-instructions" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; min-height: 50px;">
+              Initialize choices. Turn inputs required.
+            </p>
+
+            <button id="btn-arena-action" class="btn" style="width: 100%;">
+              Begin Inputs
+            </button>
+            <button id="btn-abort-game" class="btn btn-secondary btn-danger" style="width: 100%; font-size: 0.85rem; padding: 0.6rem;">
+              Abort Sequence
+            </button>
+          </div>
+          
+          <div style="margin-top: 1rem;">
+            <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; margin-bottom: 0.3rem;">Active Protocol Modules:</div>
+            <div id="active-rules-tags" class="active-rules-tags">
+              <!-- JS will fill with rules tags -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Log Panel -->
+        <div class="glass-panel sidebar-card" style="flex: 1; display: flex; flex-direction: column;">
+          <div class="sidebar-title">Mainframe Logs</div>
+          <div id="history-logs" class="history-logs">
+            <div style="color: var(--text-secondary); font-size: 0.85rem; font-style: italic; text-align: center; margin-top: 2rem;">No logs generated.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. VICTORY / GAME OVER SCREEN -->
+    <div id="victory-screen" class="screen glass-panel victory-card">
+      <div class="victory-title">Sequence Completed</div>
+      <div id="victory-icon-container">
+        <!-- SVG graphic for victory -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="green-glow" style="margin: 1rem auto;"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+      </div>
+      <div class="victory-winner-box">
+        <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">System Survivor Node:</div>
+        <div id="victory-winner-name" class="victory-winner-name green-glow">Administrator</div>
+      </div>
+      <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5; max-width: 450px; margin: 0 auto;">
+        The system stability has stabilized. The remaining Node core has successfully cleared the mainframe shutdown sequence. All other nodes have been flushed.
+      </p>
+      <button id="btn-restart-game" class="btn btn-center">
+        Reinitialize Mainframe
+      </button>
+    </div>
+  </div>
+
+  <!-- SYSTEM PROTOCOLS MODAL -->
+  <div id="protocols-modal" class="turn-overlay" style="display: none; z-index: 200;">
+    <div class="glass-panel" style="max-width: 600px; width: 100%; display: flex; flex-direction: column; gap: 1.2rem; max-height: 80vh; overflow-y: auto;">
+      <div class="turn-instruction" style="border-bottom: 1px solid rgba(0, 229, 255, 0.15); padding-bottom: 0.5rem; text-align: center;">SYSTEM STABILITY PROTOCOLS</div>
+      
+      <div style="font-size: 0.88rem; line-height: 1.5; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.8rem; text-align: left;">
+        <div>
+          <strong style="color: var(--text-primary);">Core Objective:</strong> Be the last Node surviving. All nodes begin with <strong style="color: var(--accent-green);">0 Stability</strong>. Losing a round decreases stability by 1. Reaching <strong style="color: var(--accent-red);">-10 Stability</strong> triggers a Core Meltdown (elimination).
+        </div>
+        
+        <div>
+          <strong style="color: var(--text-primary);">The Round Cycle:</strong>
+          <ol style="margin-left: 1.5rem; margin-top: 0.3rem; display: flex; flex-direction: column; gap: 0.3rem;">
+            <li>All active nodes secretly select a value between <strong style="color: var(--accent-cyan);">0 and 100</strong>.</li>
+            <li>The system calculates the average of all submissions.</li>
+            <li>The average is scaled by <strong style="color: var(--accent-cyan);">0.8</strong> to determine the target value.</li>
+            <li>The node closest to the target wins and suffers <strong style="color: var(--accent-green);">0 penalty</strong>. All other nodes lose 1 stability.</li>
+          </ol>
+        </div>
+
+        <div>
+          <strong style="color: var(--text-primary);">Custom Protocol Modules:</strong>
+          <ul style="margin-left: 1.5rem; margin-top: 0.3rem; display: flex; flex-direction: column; gap: 0.4rem; list-style-type: square;">
+            <li><strong style="color: var(--accent-orange);">Disqualification Override:</strong> If 2 or more active nodes choose the exact same value, they are disqualified, suffer -1 penalty, and their numbers are ignored in calculations. (Active at &le; 4 nodes).</li>
+            <li><strong style="color: var(--accent-orange);">Precision Spike:</strong> If a node hits the target value precisely, the winner loses 0, but all other nodes suffer double penalty (-2 stability). (Active at &le; 3 nodes).</li>
+            <li><strong style="color: var(--accent-orange);">Zero-One Override:</strong> In 1v1 mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins the round. (Active at 2 nodes).</li>
+          </ul>
+        </div>
+      </div>
+
+      <button id="btn-close-protocols" class="btn btn-center" style="margin-top: 0.5rem;">Close Console</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="audio.js"></script>
+  <script src="network.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
