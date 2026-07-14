@@ -525,12 +525,22 @@ function startGame() {
     myPlayerId = gameConfig.players[0].id; // Host is Player 1
     
     for (let i = 1; i < gameConfig.players.length; i++) {
-       if (gameConfig.players[i].type === 'human' && peerIndex < peers.length) {
-          peerToPlayerMap[peers[peerIndex]] = gameConfig.players[i].id;
-          gameConfig.players[i].name = "Remote Node " + (peerIndex + 1);
-          peerIndex++;
+       if (gameConfig.players[i].type === 'human') {
+          if (peerIndex < peers.length) {
+             peerToPlayerMap[peers[peerIndex]] = gameConfig.players[i].id;
+             gameConfig.players[i].name = "Remote Node " + (peerIndex + 1);
+             peerIndex++;
+          } else {
+             // Convert unfilled human slot to AI so the game doesn't get stuck waiting
+             gameConfig.players[i].type = 'ai';
+             gameConfig.players[i].personality = 'rationalist';
+             gameConfig.players[i].name = "AI Sub-Core " + i;
+          }
        }
     }
+    
+    // Update node cards visually if types changed
+    renderArenaNodeCards();
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
 
