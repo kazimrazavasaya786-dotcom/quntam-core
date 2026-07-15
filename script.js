@@ -13,7 +13,7 @@ let gameConfig = {
 
 let gameState = {
   currentRound: 1,
-  phase: 'setup', // 'setup', 'input', 'reveal', 'meltdown_check', 'game_over'
+  phase: 'setup', // 'setup', 'arena', 'input', 'reveal', 'meltdown_check', 'game_over'
   activeHumanIndex: -1, // DEPRECATED in multiplayer
   history: [],
   winnerId: null
@@ -312,6 +312,7 @@ function setupEventListeners() {
   // Victory Screen Actions
   document.getElementById('btn-restart-game').addEventListener('click', () => {
     playSelectSound();
+    gameState.phase = 'setup';
     switchScreen('setup');
   });
 
@@ -410,7 +411,7 @@ function updateTensionIntensity() {
   window.quantumAudio.setTensionIntensity(finalIntensity);
 }
 
-// Screen Routing
+// Screen Routing (does not mutate gameState.phase — UI screens ≠ game phases)
 function switchScreen(screenKey) {
   Object.keys(screens).forEach(key => {
     screens[key].style.display = 'none';
@@ -418,7 +419,6 @@ function switchScreen(screenKey) {
   });
   screens[screenKey].style.display = 'flex';
   screens[screenKey].classList.add('active');
-  gameState.phase = screenKey;
 }
 
 // Render scale ticks
@@ -516,6 +516,7 @@ function startGame() {
   lcdAverage.textContent = '--.--';
   lcdTarget.textContent = '--.--';
 
+  gameState.phase = 'arena';
   switchScreen('arena');
   
   if (window.Network && window.Network.getMode() === 'host') {
@@ -555,6 +556,7 @@ function abortGame() {
   playSelectSound();
   if (confirm("Are you sure you want to abort the current simulation sequence?")) {
     if (window.quantumAudio) window.quantumAudio.stopTensionMusic();
+    gameState.phase = 'setup';
     switchScreen('setup');
   }
 }
