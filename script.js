@@ -84,6 +84,22 @@ function isOnlineGame() {
   return isOnlineHost() || isOnlineClient();
 }
 
+/** Host + local play audio; joining friends stay silent so only the host speaker plays. */
+function canPlayAudio() {
+  if (audioMuted) return false;
+  if (isOnlineClient()) return false;
+  return !!(window.quantumAudio);
+}
+
+function syncAudioToggleVisibility() {
+  if (!audioToggleBtn) return;
+  // Clients don't hear game audio — hide the control to avoid confusion
+  audioToggleBtn.style.display = isOnlineClient() ? 'none' : 'flex';
+  if (isOnlineClient() && window.quantumAudio) {
+    try { window.quantumAudio.stopTensionMusic(); } catch (_) {}
+  }
+}
+
 function renderLobbyList(containerId, lobby) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -129,6 +145,10 @@ function syncClientFromHost(payload) {
   const myPeerId = window.Network.getPeerId();
   myPlayerId = peerToPlayerMap[myPeerId] || null;
 
+  // Joining devices stay silent — host device carries music/SFX
+  stopGameMusic();
+  syncAudioToggleVisibility();
+
   renderActiveRulesTags();
   renderArenaNodeCards();
   resetScalePlot();
@@ -136,6 +156,9 @@ function syncClientFromHost(payload) {
   renderLogs();
   btnArenaAction.style.display = 'none';
   btnAbortGame.style.display = 'none';
+
+  // Show status text for clients so they always know what's happening
+  const clientStatus = document.getElementById('arena-instructions');
 
   if (gameState.history.length > 0) {
     const lastRound = gameState.history[gameState.history.length - 1];
@@ -157,18 +180,16 @@ function syncClientFromHost(payload) {
       }
     } else {
       lastSyncedPhase = 'input-wait';
-      arenaInstructions.textContent = me && me.lastChoice !== null
-        ? 'Value locked. Waiting for other nodes...'
-        : 'Waiting for nodes to lock inputs... (Spectating)';
-      // Keep badges
+      if (clientStatus) {
+        clientStatus.textContent = me && me.lastChoice !== null
+          ? 'Value locked. Waiting for other nodes...'
+          : 'Waiting for nodes to lock inputs... (Spectating)';
+      }
       gameConfig.players.forEach(p => {
         if (!p.isAlive) return;
         const badge = document.getElementById(`node-val-${p.id}`);
         if (!badge) return;
-        if (p.id === myPlayerId && p.lastChoice !== null) {
-          badge.textContent = 'LOCKED';
-          badge.className = 'node-value-badge locked';
-        } else if (p.lastChoice !== null && p.type === 'human') {
+        if (p.lastChoice !== null && p.type === 'human') {
           badge.textContent = 'LOCKED';
           badge.className = 'node-value-badge locked';
         } else {
@@ -183,7 +204,7 @@ function syncClientFromHost(payload) {
 
   if (phase === 'reveal') {
     lastSyncedPhase = phase;
-    arenaInstructions.textContent = 'All values locked. Host is running evaluation...';
+    if (clientStatus) clientStatus.textContent = 'All values locked. Calculating results...';
     gameConfig.players.forEach(p => {
       if (!p.isAlive) return;
       const badge = document.getElementById(`node-val-${p.id}`);
@@ -227,11 +248,13 @@ function syncClientFromHost(payload) {
         lastRound.disqualifiedIds
       );
       const winner = gameConfig.players.find(p => p.id === lastRound.winnerId);
-      arenaInstructions.textContent = winner
-        ? `Target ${lastRound.target.toFixed(2)}. ${winner.name} wins this round. Waiting for host...`
-        : `Target ${lastRound.target.toFixed(2)}. Waiting for host to continue...`;
-    } else {
-      arenaInstructions.textContent = 'Waiting for host...';
+      if (clientStatus) {
+        clientStatus.textContent = winner
+          ? `Target ${lastRound.target.toFixed(2)}. ${winner.name} wins this round.`
+          : `Target ${lastRound.target.toFixed(2)}. Continuing...`;
+      }
+    } else if (clientStatus) {
+      clientStatus.textContent = 'Updating cores...';
     }
     switchScreen('arena');
     return;
@@ -244,10 +267,11 @@ function syncClientFromHost(payload) {
     return;
   }
 
-  // arena / setup / waiting for host to begin round
   lastSyncedPhase = phase;
   if (phase === 'arena') {
-    arenaInstructions.textContent = `Round ${gameState.currentRound} — waiting for host to begin inputs.`;
+    if (clientStatus) {
+      clientStatus.textContent = `Round ${gameState.currentRound} — waiting for host to begin inputs.`;
+    }
     gameConfig.players.forEach(p => {
       const badge = document.getElementById(`node-val-${p.id}`);
       if (!badge) return;
@@ -290,6 +314,8 @@ function initApp() {
       msg.textContent = `Connected to room ${code}. Waiting for host to start...`;
       document.getElementById('btn-join-room').disabled = true;
       renderLobbyList('join-lobby-list', lobby);
+      stopGameMusic();
+      syncAudioToggleVisibility();
     };
 
     window.Network.events.onError = (message) => {
@@ -356,6 +382,8 @@ function initApp() {
       window.quantumAudio.init();
     }
   }, { once: true });
+
+  syncAudioToggleVisibility();
 }
 
 // Setup Event Listeners
@@ -380,6 +408,7 @@ function setupEventListeners() {
     btnStartGame.style.display = 'block';
     btnStartGame.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Initialize Sequence';
     if (window.Network) window.Network.goLocal();
+    syncAudioToggleVisibility();
   });
 
   btnModeHost.addEventListener('click', () => {
@@ -398,6 +427,7 @@ function setupEventListeners() {
     if (window.Network) {
       window.Network.startHosting(hostName);
     }
+    syncAudioToggleVisibility();
   });
 
   btnModeJoin.addEventListener('click', () => {
@@ -414,6 +444,8 @@ function setupEventListeners() {
     document.getElementById('join-status-msg').textContent = '';
     renderLobbyList('join-lobby-list', []);
     if (window.Network) window.Network.goLocal();
+    stopGameMusic();
+    syncAudioToggleVisibility();
   });
 
   document.getElementById('btn-join-room').addEventListener('click', () => {
@@ -540,13 +572,12 @@ function setupEventListeners() {
       audioToggleBtn.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="audio-icon-on"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
       `;
-      if (window.quantumAudio) {
+      if (canPlayAudio()) {
         window.quantumAudio.init();
         window.quantumAudio.playSelect();
         // Resume tension music if game is in progress
-        if (gameState.phase !== 'setup') {
-          window.quantumAudio.startTensionMusic();
-          updateTensionIntensity();
+        if (gameState.phase !== 'setup' && gameState.phase !== 'game_over') {
+          startGameMusic();
         }
       }
     }
@@ -564,46 +595,34 @@ function setupEventListeners() {
   });
 }
 
-// Sound Helpers
+// Sound Helpers — only host / local devices output sound
 function playSelectSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playSelect();
-  }
+  if (canPlayAudio()) window.quantumAudio.playSelect();
 }
 
 function playWarningSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playWarning();
-  }
+  if (canPlayAudio()) window.quantumAudio.playWarning();
 }
 
 function playClankSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playClank();
-  }
+  if (canPlayAudio()) window.quantumAudio.playClank();
 }
 
 function playSizzleSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playSizzle();
-  }
+  if (canPlayAudio()) window.quantumAudio.playSizzle();
 }
 
 function playTickSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playTick();
-  }
+  if (canPlayAudio()) window.quantumAudio.playTick();
 }
 
 function playMeltdownSound() {
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.playMeltdown();
-  }
+  if (canPlayAudio()) window.quantumAudio.playMeltdown();
 }
 
 // Calculate and update tension music intensity based on game state
 function updateTensionIntensity() {
-  if (!window.quantumAudio) return;
+  if (!canPlayAudio()) return;
   
   const alivePlayers = gameConfig.players.filter(p => p.isAlive);
   if (alivePlayers.length === 0) return;
@@ -618,6 +637,22 @@ function updateTensionIntensity() {
 
   const finalIntensity = Math.min(1.0, intensity + eliminationBonus);
   window.quantumAudio.setTensionIntensity(finalIntensity);
+}
+
+function startGameMusic() {
+  if (!canPlayAudio()) return;
+  window.quantumAudio.init();
+  if (window.quantumAudio.ctx && window.quantumAudio.ctx.state === 'suspended') {
+    window.quantumAudio.ctx.resume();
+  }
+  window.quantumAudio.startTensionMusic();
+  updateTensionIntensity();
+}
+
+function stopGameMusic() {
+  if (window.quantumAudio) {
+    try { window.quantumAudio.stopTensionMusic(); } catch (_) {}
+  }
 }
 
 // Screen Routing (does not mutate gameState.phase — UI screens ≠ game phases)
@@ -774,14 +809,8 @@ function startGame() {
     myPlayerId = gameConfig.players[0].id;
   }
 
-  // Start tension music
-  if (!audioMuted && window.quantumAudio) {
-    window.quantumAudio.init();
-    if (window.quantumAudio.ctx && window.quantumAudio.ctx.state === 'suspended') {
-      window.quantumAudio.ctx.resume();
-    }
-    window.quantumAudio.startTensionMusic();
-  }
+  // Start tension music (host / local only)
+  startGameMusic();
 }
 
 // Abort Game
@@ -789,7 +818,7 @@ function abortGame() {
   playSelectSound();
   if (isOnlineClient()) return; // Host controls abort
   if (confirm("Are you sure you want to abort the current simulation sequence?")) {
-    if (window.quantumAudio) window.quantumAudio.stopTensionMusic();
+    stopGameMusic();
     if (isOnlineHost() && window.Network.broadcastAbort) {
       window.Network.broadcastAbort();
     }
@@ -941,15 +970,12 @@ function handleArenaAction() {
   if (isOnlineClient()) return; // Only the host advances phases online
   playSelectSound();
   
-  if (gameState.phase === 'arena' && btnArenaAction.textContent === "Begin Inputs") {
-    // Transition to turn gathering phase
+  if (gameState.phase === 'arena' && (btnArenaAction.textContent === "Begin Inputs" || btnArenaAction.textContent.includes('Begin'))) {
     gameState.phase = 'input';
     gatherNextInput();
   } else if (gameState.phase === 'reveal') {
-    // Evaluate the round results
     evaluateRound();
   } else if (gameState.phase === 'meltdown_check') {
-    // Check for game completion or trigger next round setup
     prepareNextRoundOrFinish();
   }
 }
@@ -1018,6 +1044,14 @@ function checkAllInputsReceived() {
     if (isOnlineHost()) {
        window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
     }
+
+    // Auto-continue so play never stalls waiting on the host button
+    const evalToken = (gameState._autoToken = (gameState._autoToken || 0) + 1);
+    setTimeout(() => {
+      if (gameState.phase === 'reveal' && gameState._autoToken === evalToken) {
+        evaluateRound();
+      }
+    }, 900);
   }
 }
 
@@ -1187,6 +1221,7 @@ function computeAIChoices() {
 
 // Main evaluation logic
 function evaluateRound() {
+  if (gameState.phase !== 'reveal') return;
   const activePlayers = gameConfig.players.filter(p => p.isAlive);
   const numActive = activePlayers.length;
 
@@ -1405,10 +1440,19 @@ function evaluateRound() {
   // Transition Phase to meltdown checks
   gameState.phase = 'meltdown_check';
   btnArenaAction.textContent = "Process Core Meltdowns";
+  btnArenaAction.style.display = 'block';
   
   if (isOnlineHost()) {
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
+
+  // Auto-advance meltdown / next round so the match keeps flowing
+  const meltToken = (gameState._autoToken = (gameState._autoToken || 0) + 1);
+  setTimeout(() => {
+    if (gameState.phase === 'meltdown_check' && gameState._autoToken === meltToken) {
+      prepareNextRoundOrFinish();
+    }
+  }, 1800);
 }
 
 // Plot numbers on the visual slider scale
@@ -1449,6 +1493,7 @@ function plotScaleResults(validChoices, target, disqualifiedIds) {
 
 // Meltdown verification phase (deactivating players who hit -10)
 function prepareNextRoundOrFinish() {
+  if (gameState.phase !== 'meltdown_check') return;
   let meltdownsHappened = false;
 
   gameConfig.players.forEach(p => {
@@ -1539,7 +1584,7 @@ function declareGameOver(survivors) {
   }
 
   // Stop tension music on game end
-  if (window.quantumAudio) window.quantumAudio.stopTensionMusic();
+  stopGameMusic();
 
   playWarningSound();
   switchScreen('victory');
