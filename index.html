@@ -151,19 +151,18 @@
           <div class="scale-header">
             <div class="scale-title">Dynamic Stability Scale</div>
             <div class="lcd-readout">
-              <div>
-                <span style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">Average:</span>
+              <div class="lcd-block">
+                <span class="lcd-label">Average</span>
                 <span class="lcd-value" id="lcd-average">--.--</span>
               </div>
-              <div>
-                <span style="font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase;">Target (x0.8):</span>
+              <div class="lcd-block">
+                <span class="lcd-label">Target ×0.8</span>
                 <span class="lcd-value result" id="lcd-target">--.--</span>
               </div>
             </div>
           </div>
           
           <div class="scale-track-container" id="scale-track-container">
-            <!-- Dynamic ticks generated in CSS/JS, and nodes plotted here -->
             <div class="scale-ticks" id="scale-ticks"></div>
             <div id="scale-plots"></div>
           </div>
@@ -177,36 +176,41 @@
 
       <div class="arena-sidebar">
         <!-- Control / Action panel -->
-        <div class="glass-panel sidebar-card">
-          <div class="sidebar-title">Arena Controls</div>
-          <div style="display: flex; flex-direction: column; gap: 0.8rem;">
-            <div id="round-number-lcd" style="font-family: var(--font-lcd); font-size: 1.1rem; color: var(--accent-cyan); text-align: center; background: #050608; border: 1px solid rgba(0,229,255,0.15); padding: 0.5rem; border-radius: 6px; text-transform: uppercase; font-weight: 700;">
+        <div class="glass-panel sidebar-card arena-controls-card">
+          <div class="sidebar-title controls-title">Arena Controls</div>
+          <div class="arena-controls-inner">
+            <div id="round-number-lcd" class="round-number-lcd">
               Round 1
             </div>
             
-            <p id="arena-instructions" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; min-height: 50px;">
+            <p id="arena-instructions" class="arena-instructions">
               Initialize choices. Turn inputs required.
             </p>
 
-            <button id="btn-arena-action" class="btn" style="width: 100%;">
-              Begin Inputs
-            </button>
-            <button id="btn-abort-game" class="btn btn-secondary btn-danger" style="width: 100%; font-size: 0.85rem; padding: 0.6rem;">
-              Abort Sequence
-            </button>
+            <div class="arena-action-row">
+              <button id="btn-arena-action" class="btn btn-arena-action">
+                Begin Inputs
+              </button>
+              <button id="btn-abort-game" class="btn btn-secondary btn-danger btn-abort">
+                Abort
+              </button>
+            </div>
           </div>
           
-          <div style="margin-top: 1rem;">
-            <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; margin-bottom: 0.3rem;">Active Protocol Modules:</div>
+          <div class="protocol-strip">
+            <div class="protocol-strip-label">Protocols</div>
             <div id="active-rules-tags" class="active-rules-tags">
               <!-- JS will fill with rules tags -->
             </div>
           </div>
         </div>
 
-        <!-- Log Panel -->
+        <!-- Log Panel (collapsed on mobile) -->
         <div class="glass-panel sidebar-card logs-card">
-          <div class="sidebar-title">Mainframe Logs</div>
+          <button type="button" id="btn-toggle-logs" class="logs-toggle" aria-expanded="false">
+            <span class="sidebar-title" style="margin:0;border:0;padding:0;">Mainframe Logs</span>
+            <span class="logs-toggle-icon">▸</span>
+          </button>
           <div id="history-logs" class="history-logs">
             <div style="color: var(--text-secondary); font-size: 0.85rem; font-style: italic; text-align: center; margin-top: 2rem;">No logs generated.</div>
           </div>

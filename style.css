@@ -1269,6 +1269,96 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
 }
 
+.logs-toggle {
+  display: none;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  font: inherit;
+}
+
+.logs-toggle-icon {
+  color: var(--accent-cyan);
+  font-size: 1rem;
+  transition: transform 0.2s ease;
+}
+
+.logs-card.logs-open .logs-toggle-icon {
+  transform: rotate(90deg);
+}
+
+.round-number-lcd {
+  font-family: var(--font-lcd);
+  font-size: 1.1rem;
+  color: var(--accent-cyan);
+  text-align: center;
+  background: #050608;
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  padding: 0.5rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.arena-instructions {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  min-height: 50px;
+}
+
+.arena-controls-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.arena-action-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.btn-arena-action {
+  width: 100%;
+}
+
+.btn-abort {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 0.6rem;
+}
+
+.protocol-strip {
+  margin-top: 1rem;
+}
+
+.protocol-strip-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.lcd-label {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  display: block;
+}
+
+.lcd-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .protocols-panel {
   max-width: 600px;
   width: 100%;
@@ -1309,71 +1399,90 @@ select {
 }
 
 /* ============================================================
-   MOBILE / TABLET RESPONSIVE
+   MOBILE GAME HUD — one-screen play, no endless scrolling
    ============================================================ */
 
 @media (max-width: 900px) {
   .container {
-    padding: 1rem 0.85rem 2rem;
-    padding-left: max(0.85rem, env(safe-area-inset-left));
-    padding-right: max(0.85rem, env(safe-area-inset-right));
-    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    padding: 0.65rem 0.7rem 1rem;
+    padding-left: max(0.7rem, env(safe-area-inset-left));
+    padding-right: max(0.7rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 
   header {
-    margin-bottom: 1.1rem;
-    padding-right: 2.5rem; /* room for audio btn */
+    margin-bottom: 0.75rem;
+    padding-right: 2.75rem;
   }
 
   h1 {
-    font-size: 1.55rem;
+    font-size: 1.45rem;
     letter-spacing: 1px;
   }
 
   .subtitle {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  /* Compact brand bar while playing */
+  body.arena-active header {
+    margin-bottom: 0.35rem;
+  }
+
+  body.arena-active h1 {
+    font-size: 0.95rem;
+    margin-bottom: 0;
+  }
+
+  body.arena-active .subtitle,
+  body.arena-active .btn-protocols {
+    display: none;
+  }
+
+  body.arena-active .container {
+    padding-top: 0.4rem;
+    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom));
+    min-height: 100dvh;
   }
 
   .audio-toggle-btn {
     position: fixed;
-    top: max(0.75rem, env(safe-area-inset-top));
-    right: max(0.75rem, env(safe-area-inset-right));
-    z-index: 50;
-    background: rgba(18, 22, 32, 0.9);
-    min-width: 44px;
-    min-height: 44px;
+    top: max(0.55rem, env(safe-area-inset-top));
+    right: max(0.55rem, env(safe-area-inset-right));
+    z-index: 60;
+    background: rgba(18, 22, 32, 0.92);
+    min-width: 42px;
+    min-height: 42px;
   }
 
-  /* Soften scanline overlay on small screens */
   body::after {
-    opacity: 0.2;
+    opacity: 0.15;
   }
 
   .glass-panel {
-    padding: 1.15rem;
+    padding: 0.85rem;
     border-radius: 10px;
   }
 
   .setup-card {
-    margin: 0.5rem auto;
-    padding: 1.15rem;
+    margin: 0.35rem auto;
+    padding: 1rem;
   }
 
   .setup-section {
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
   }
 
   .setup-section h3 {
-    font-size: 0.95rem;
-    margin-bottom: 0.85rem;
+    font-size: 0.9rem;
+    margin-bottom: 0.7rem;
   }
 
-  /* Mode buttons stack / stretch */
   .mode-buttons .btn {
     flex: 1 1 140px;
     min-height: 44px;
-    padding: 0.7rem 0.9rem;
-    font-size: 0.8rem;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.78rem;
   }
 
   .btn-protocols {
@@ -1382,20 +1491,15 @@ select {
     min-height: 40px;
   }
 
-  /* Node registry: stack fields vertically */
   .node-config-row {
     grid-template-columns: 1fr;
-    gap: 0.55rem;
-    padding: 0.85rem;
+    gap: 0.5rem;
+    padding: 0.75rem;
   }
 
   .node-config-row .node-label {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--accent-cyan);
-  }
-
-  .nodes-count-row {
-    gap: 0.6rem;
   }
 
   .nodes-count-row .btn-nodes {
@@ -1403,14 +1507,9 @@ select {
     min-height: 44px;
   }
 
-  .btn,
   .btn-center {
     min-height: 48px;
     width: 100%;
-    max-width: 100%;
-  }
-
-  .btn-center {
     margin-left: 0;
     margin-right: 0;
   }
@@ -1421,261 +1520,401 @@ select {
   }
 
   .room-code-value {
-    font-size: 1.8rem;
-    letter-spacing: 0.2em;
+    font-size: 1.7rem;
+    letter-spacing: 0.18em;
   }
 
-  /* Arena: controls first so actions are reachable */
-  .arena-grid {
+  /* ----- Arena play layout ----- */
+  #arena-screen.active.arena-grid {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.55rem;
+  }
+
+  .arena-main {
+    gap: 0.55rem;
+    order: 1;
   }
 
   .arena-sidebar {
-    order: -1;
-    gap: 0.9rem;
+    order: 2;
+    gap: 0.5rem;
   }
 
-  .arena-sidebar .sidebar-card:first-of-type {
-    position: sticky;
-    top: 0.4rem;
-    z-index: 15;
-    background: rgba(18, 22, 32, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+  /* Fixed bottom play dock */
+  .arena-controls-card {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    margin: 0;
+    border-radius: 14px 14px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 0.65rem 0.85rem calc(0.65rem + env(safe-area-inset-bottom));
+    background: rgba(10, 12, 18, 0.97);
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .arena-controls-card .controls-title,
+  .arena-controls-card .protocol-strip {
+    display: none;
+  }
+
+  .arena-controls-inner {
+    gap: 0.4rem;
+  }
+
+  .round-number-lcd {
+    font-size: 0.78rem;
+    padding: 0.28rem 0.5rem;
+    display: inline-block;
+    width: auto;
+    align-self: flex-start;
+  }
+
+  .arena-instructions {
+    font-size: 0.78rem;
+    min-height: 0;
+    max-height: 2.6em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    margin: 0;
+    line-height: 1.3;
+  }
+
+  .arena-action-row {
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+
+  .btn-arena-action {
+    flex: 1;
+    min-height: 48px;
+    width: auto;
+    font-size: 0.82rem;
+    padding: 0.65rem 0.5rem;
+  }
+
+  .btn-abort {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 72px;
+    min-height: 48px;
+    font-size: 0.72rem;
+    padding: 0.5rem 0.65rem;
+  }
+
+  /* Compact score + scale HUD */
+  .scale-card {
+    padding: 0.65rem 0.75rem 0.55rem;
+    gap: 0.35rem;
   }
 
   .scale-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.65rem;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .scale-title {
+    display: none;
   }
 
   .lcd-readout {
     width: 100%;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+    padding: 0.35rem 0.55rem;
   }
 
   .lcd-value {
-    font-size: 1rem;
+    font-size: 1.05rem;
   }
 
   .scale-track-container {
-    height: 56px;
-    margin: 2.4rem 0 0.75rem;
+    height: 42px;
+    margin: 1.6rem 0 0.15rem;
   }
 
   .scale-plot-label {
-    font-size: 0.55rem;
-    padding: 0.05rem 0.25rem;
-    max-width: 64px;
+    font-size: 0.5rem;
+    padding: 0.02rem 0.2rem;
+    max-width: 52px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .scale-plot-dot {
-    width: 11px;
-    height: 11px;
+    width: 10px;
+    height: 10px;
   }
 
   .scale-plot-node.target .scale-plot-dot {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
   }
 
-  .scale-tick-mark:nth-child(10n+1)::after {
-    font-size: 0.6rem;
+  .scale-tick-mark::after {
+    display: none !important;
   }
 
-  /* Compact node cards — 2 columns */
+  .scale-tick-mark:nth-child(1)::after,
+  .scale-tick-mark:nth-child(11)::after,
+  .scale-tick-mark:nth-child(21)::after {
+    display: block !important;
+    font-size: 0.55rem;
+    top: 12px;
+  }
+
+  /* Player cores: compact horizontal strip (swipe if needed) */
   .nodes-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.45rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.15rem 0.1rem 0.35rem;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .nodes-container::-webkit-scrollbar {
+    display: none;
   }
 
   .node-card {
-    padding: 0.75rem 0.5rem;
+    flex: 0 0 auto;
+    width: 108px;
+    min-width: 108px;
+    padding: 0.55rem 0.4rem 0.5rem;
+    scroll-snap-align: start;
+    gap: 0.15rem;
   }
 
   .node-header {
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.2rem;
   }
 
   .node-name {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
   }
 
   .node-role {
-    font-size: 0.62rem;
+    font-size: 0.55rem;
   }
 
+  /* Swap tall tubes → thin horizontal stability bars */
   .plasma-tube-wrapper {
-    width: 46px;
-    height: 110px;
-    margin: 0.25rem 0 0.65rem;
+    width: 100%;
+    height: 12px;
+    margin: 0.35rem 0 0.4rem;
+    perspective: none;
+    order: 3;
   }
 
   .plasma-tube-cap-top,
   .plasma-tube-cap-bottom {
-    width: 52px;
-    height: 10px;
-    left: -3px;
+    display: none;
+  }
+
+  .plasma-tube-cylinder {
+    border-radius: 6px;
+    border-width: 1px;
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.5);
+  }
+
+  .plasma-fluid {
+    height: 100% !important;
+    width: var(--fill, 0%);
+    border-radius: 5px;
+    left: 0;
+    bottom: 0;
+    transition: width 0.8s ease-out;
+  }
+
+  .node-card.melted .plasma-fluid {
+    width: 100% !important;
+  }
+
+  .plasma-fluid::before {
+    display: none;
+  }
+
+  .plasma-bubble {
+    display: none;
   }
 
   .node-value-badge {
-    font-size: 0.72rem;
-    padding: 0.15rem 0.4rem;
-    min-height: 22px;
+    font-size: 0.7rem;
+    padding: 0.12rem 0.35rem;
+    min-height: 20px;
+    margin-bottom: 0.15rem;
+    order: 1;
+  }
+
+  .node-card > div:last-child {
+    order: 4;
   }
 
   .stability-score {
-    font-size: 0.9rem;
+    font-size: 0.82rem;
   }
 
   .meltdown-text {
-    font-size: 0.75rem;
-    letter-spacing: 1px;
+    font-size: 0.62rem;
+    letter-spacing: 0.5px;
+    margin-bottom: 0;
   }
 
-  .history-logs {
-    max-height: 220px;
+  .meltdown-subtext {
+    font-size: 0.5rem;
   }
 
+  /* Logs collapsed by default on mobile */
   .logs-card {
     flex: 0 0 auto;
+    padding: 0.55rem 0.75rem;
   }
 
-  /* Turn / number picker */
+  .logs-card > .sidebar-title {
+    display: none;
+  }
+
+  .logs-toggle {
+    display: flex;
+  }
+
+  .logs-card .history-logs {
+    display: none;
+    max-height: 160px;
+    margin-top: 0.55rem;
+  }
+
+  .logs-card.logs-open .history-logs {
+    display: flex;
+  }
+
+  /* Turn picker — snappy full-screen */
   .turn-overlay {
-    padding: 1rem;
-    padding-top: max(1rem, env(safe-area-inset-top));
-    align-items: flex-start;
+    padding: 0.75rem;
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+    align-items: center;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
   }
 
   .turn-input-card {
-    margin-top: 8vh;
-    gap: 1rem;
-    padding: 1.25rem;
+    margin-top: 0;
+    gap: 0.85rem;
+    padding: 1.1rem;
   }
 
   .turn-instruction {
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
 
   .turn-player-name {
-    font-size: 1.35rem;
+    font-size: 1.25rem;
+    margin: 0;
   }
 
   .slider-val-display {
-    font-size: 2.8rem;
-    width: 130px;
-    height: 80px;
+    font-size: 2.6rem;
+    width: 120px;
+    height: 74px;
   }
 
   input[type="range"] {
-    height: 12px;
+    height: 14px;
   }
 
   input[type="range"]::-webkit-slider-thumb {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
   }
 
   input[type="range"]::-moz-range-thumb {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     background: var(--accent-cyan);
     border: 2px solid var(--text-dark);
   }
 
   .victory-card {
-    margin: 1rem auto;
-    gap: 1rem;
+    margin: 0.75rem auto;
+    gap: 0.85rem;
   }
 
   .victory-title {
-    font-size: 1.45rem;
+    font-size: 1.35rem;
   }
 
   .victory-winner-name {
-    font-size: 1.35rem;
+    font-size: 1.25rem;
   }
 
   .protocols-panel {
     max-height: min(88vh, 100%);
-    margin: auto 0;
-    padding: 1.1rem;
+    padding: 1rem;
   }
 
   .protocols-body {
-    font-size: 0.82rem;
+    font-size: 0.8rem;
   }
 
   .rule-toggle-card {
-    padding: 0.85rem;
-    gap: 0.75rem;
-  }
-
-  .rule-name {
-    font-size: 0.88rem;
-  }
-
-  .rule-desc {
-    font-size: 0.75rem;
+    padding: 0.75rem;
   }
 }
 
-/* Very small phones */
 @media (max-width: 380px) {
-  h1 {
-    font-size: 1.3rem;
+  .node-card {
+    width: 96px;
+    min-width: 96px;
   }
 
-  .nodes-container {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .plasma-tube-wrapper {
-    width: 40px;
-    height: 96px;
-  }
-
-  .mode-buttons .btn {
-    flex: 1 1 100%;
+  .btn-arena-action {
+    font-size: 0.72rem;
   }
 
   .room-code-value {
-    font-size: 1.5rem;
-    letter-spacing: 0.15em;
+    font-size: 1.4rem;
   }
 }
 
-/* Short landscape phones — keep turn UI usable */
 @media (max-height: 500px) and (orientation: landscape) {
+  body.arena-active .container {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+
+  .arena-instructions {
+    display: none;
+  }
+
   .turn-overlay {
     align-items: flex-start;
-    padding: 0.5rem;
+    padding: 0.4rem;
   }
 
   .turn-input-card {
-    margin-top: 0.25rem;
-    gap: 0.6rem;
-    padding: 0.85rem;
+    gap: 0.5rem;
+    padding: 0.75rem;
   }
 
   .slider-val-display {
-    font-size: 2rem;
-    height: 56px;
-    width: 100px;
-  }
-
-  .plasma-tube-wrapper {
-    height: 80px;
+    font-size: 1.8rem;
+    height: 52px;
+    width: 90px;
   }
 }

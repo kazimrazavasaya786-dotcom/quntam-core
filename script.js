@@ -509,6 +509,15 @@ function setupEventListeners() {
   btnArenaAction.addEventListener('click', handleArenaAction);
   btnAbortGame.addEventListener('click', abortGame);
 
+  const btnToggleLogs = document.getElementById('btn-toggle-logs');
+  if (btnToggleLogs) {
+    btnToggleLogs.addEventListener('click', () => {
+      const card = btnToggleLogs.closest('.logs-card');
+      const open = card.classList.toggle('logs-open');
+      btnToggleLogs.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+
   // Victory Screen Actions
   document.getElementById('btn-restart-game').addEventListener('click', () => {
     playSelectSound();
@@ -619,6 +628,10 @@ function switchScreen(screenKey) {
   });
   screens[screenKey].style.display = 'flex';
   screens[screenKey].classList.add('active');
+
+  document.body.classList.toggle('arena-active', screenKey === 'arena');
+  document.body.classList.toggle('setup-active', screenKey === 'setup');
+  document.body.classList.toggle('victory-active', screenKey === 'victory');
 }
 
 // Render scale ticks
@@ -872,6 +885,7 @@ function updatePlayerLiquidUI(playerId) {
   // starts at 0% when stability is 0, reaches 100% when stability is -10
   const percentage = Math.max(0, Math.min(100, (player.stability / -10) * 100));
   fluid.style.height = `${percentage}%`;
+  fluid.style.setProperty('--fill', `${percentage}%`);
 
   // Color profiles
   card.classList.remove('danger', 'melted');
