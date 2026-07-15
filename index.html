@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0b10">
   <title>Quantum Core: Stability Arena</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -17,19 +18,19 @@
     <header>
       <h1>Quantum Core</h1>
       <div class="subtitle">Stability Arena &bull; Game of Rationality</div>
-      <button id="btn-protocols" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.4rem 1.2rem; margin-top: 0.8rem; letter-spacing: 0.5px;">View Protocols</button>
+      <button id="btn-protocols" class="btn btn-secondary btn-protocols">View Protocols</button>
     </header>
 
     <!-- 1. SETUP SCREEN -->
     <div id="setup-screen" class="screen glass-panel setup-card active">
       <div class="setup-section" id="mode-selection-section">
         <h3>Game Mode</h3>
-        <div class="setup-row" style="justify-content: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+        <div class="setup-row mode-buttons">
           <button id="btn-mode-local" class="btn">Local Play</button>
           <button id="btn-mode-host" class="btn btn-secondary">Host Online</button>
           <button id="btn-mode-join" class="btn btn-secondary">Join Online</button>
         </div>
-        <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin: 0;">
+        <p class="mode-hint">
           Online: share a room code with friends — everyone picks a secret number each round.
         </p>
       </div>
@@ -37,32 +38,32 @@
       <!-- ONLINE JOIN LOBBY (Hidden by default) -->
       <div id="online-join-section" class="setup-section" style="display: none; text-align: center;">
         <h3>Join a Room</h3>
-        <div style="margin-top: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
-          <input type="text" id="join-player-name" placeholder="Your display name" maxlength="20" style="width: 220px; text-align: center; font-size: 1rem;">
-          <input type="text" id="join-room-code" placeholder="Room code" maxlength="4" style="width: 220px; text-align: center; font-size: 1.4rem; text-transform: uppercase; letter-spacing: 0.25em;">
-          <button id="btn-join-room" class="btn" style="width: 220px;">Connect</button>
+        <div class="online-form">
+          <input type="text" id="join-player-name" class="online-input" placeholder="Your display name" maxlength="20">
+          <input type="text" id="join-room-code" class="online-input online-code" placeholder="Room code" maxlength="4">
+          <button id="btn-join-room" class="btn online-input">Connect</button>
         </div>
-        <div id="join-status-msg" style="color: var(--accent-orange); margin-top: 1rem; font-size: 0.9rem;"></div>
-        <div id="join-lobby-list" style="margin-top: 1rem; text-align: left; max-width: 280px; margin-left: auto; margin-right: auto; display: none;"></div>
+        <div id="join-status-msg" class="join-status-msg"></div>
+        <div id="join-lobby-list" class="lobby-list" style="display: none;"></div>
       </div>
 
       <!-- ONLINE HOST LOBBY (Hidden by default) -->
       <div id="online-host-section" class="setup-section" style="display: none; text-align: center;">
         <h3>Host Lobby</h3>
-        <div style="margin-top: 0.5rem;">
-          <input type="text" id="host-player-name" placeholder="Your display name" maxlength="20" value="Host" style="width: 220px; text-align: center; font-size: 1rem; margin-bottom: 0.75rem;">
+        <div class="online-form">
+          <input type="text" id="host-player-name" class="online-input" placeholder="Your display name" maxlength="20" value="Host">
         </div>
-        <div style="margin-top: 0.5rem; padding: 1rem; background: rgba(0,229,255,0.1); border: 1px solid var(--accent-cyan); border-radius: 8px;">
-          <div style="font-size: 0.85rem; color: var(--text-secondary); text-transform: uppercase;">Share this room code</div>
-          <div id="host-room-code" style="font-size: 2.2rem; font-weight: bold; color: var(--accent-cyan); letter-spacing: 0.3em; margin: 0.35rem 0;">----</div>
-          <button id="btn-copy-room-code" class="btn btn-secondary" style="font-size: 0.8rem; padding: 0.35rem 0.9rem;">Copy Code</button>
+        <div class="room-code-box">
+          <div class="room-code-label">Share this room code</div>
+          <div id="host-room-code" class="room-code-value">----</div>
+          <button id="btn-copy-room-code" class="btn btn-secondary btn-copy-code">Copy Code</button>
         </div>
-        <div style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-secondary);">
-          Friends joined: <span id="connected-players-count" style="color: var(--accent-cyan); font-weight: 700;">0</span>
-          <span style="opacity: 0.7;"> — empty seats become AI</span>
+        <div class="host-join-count">
+          Friends joined: <span id="connected-players-count">0</span>
+          <span class="host-join-note"> — empty seats become AI</span>
         </div>
-        <div id="host-lobby-list" style="margin-top: 0.75rem; text-align: left; max-width: 280px; margin-left: auto; margin-right: auto;"></div>
-        <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.85rem; line-height: 1.4;">
+        <div id="host-lobby-list" class="lobby-list"></div>
+        <p class="host-lobby-hint">
           When you start, you and joined friends become human nodes. Extra seats fill with AI automatically.
         </p>
       </div>
@@ -71,10 +72,10 @@
       <div id="standard-setup-sections">
         <div class="setup-section">
         <h3>1. Network Dimensions</h3>
-        <div class="setup-row">
+        <div class="setup-row nodes-count-row">
           <span class="node-label">Active Nodes:</span>
-          <button id="btn-nodes-4" class="btn btn-secondary" style="padding: 0.6rem 1.2rem;">4 Nodes</button>
-          <button id="btn-nodes-5" class="btn" style="padding: 0.6rem 1.2rem;">5 Nodes</button>
+          <button id="btn-nodes-4" class="btn btn-secondary btn-nodes">4 Nodes</button>
+          <button id="btn-nodes-5" class="btn btn-nodes">5 Nodes</button>
         </div>
       </div>
 
@@ -204,7 +205,7 @@
         </div>
 
         <!-- Log Panel -->
-        <div class="glass-panel sidebar-card" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="glass-panel sidebar-card logs-card">
           <div class="sidebar-title">Mainframe Logs</div>
           <div id="history-logs" class="history-logs">
             <div style="color: var(--text-secondary); font-size: 0.85rem; font-style: italic; text-align: center; margin-top: 2rem;">No logs generated.</div>
@@ -234,11 +235,11 @@
   </div>
 
   <!-- SYSTEM PROTOCOLS MODAL -->
-  <div id="protocols-modal" class="turn-overlay" style="display: none; z-index: 200;">
-    <div class="glass-panel" style="max-width: 600px; width: 100%; display: flex; flex-direction: column; gap: 1.2rem; max-height: 80vh; overflow-y: auto;">
-      <div class="turn-instruction" style="border-bottom: 1px solid rgba(0, 229, 255, 0.15); padding-bottom: 0.5rem; text-align: center;">SYSTEM STABILITY PROTOCOLS</div>
+  <div id="protocols-modal" class="turn-overlay protocols-modal" style="display: none; z-index: 200;">
+    <div class="glass-panel protocols-panel">
+      <div class="turn-instruction protocols-title">SYSTEM STABILITY PROTOCOLS</div>
       
-      <div style="font-size: 0.88rem; line-height: 1.5; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.8rem; text-align: left;">
+      <div class="protocols-body">
         <div>
           <strong style="color: var(--text-primary);">Core Objective:</strong> Be the last Node surviving. All nodes begin with <strong style="color: var(--accent-green);">0 Stability</strong>. Losing a round decreases stability by 1. Reaching <strong style="color: var(--accent-red);">-10 Stability</strong> triggers a Core Meltdown (elimination).
         </div>
@@ -263,7 +264,7 @@
         </div>
       </div>
 
-      <button id="btn-close-protocols" class="btn btn-center" style="margin-top: 0.5rem;">Close Console</button>
+      <button id="btn-close-protocols" class="btn btn-center">Close Console</button>
     </div>
   </div>
 
