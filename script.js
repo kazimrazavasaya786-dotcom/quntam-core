@@ -84,20 +84,15 @@ function isOnlineGame() {
   return isOnlineHost() || isOnlineClient();
 }
 
-/** Host + local play audio; joining friends stay silent so only the host speaker plays. */
+/** Local, host, and joining players all get sound. */
 function canPlayAudio() {
   if (audioMuted) return false;
-  if (isOnlineClient()) return false;
   return !!(window.quantumAudio);
 }
 
 function syncAudioToggleVisibility() {
   if (!audioToggleBtn) return;
-  // Clients don't hear game audio — hide the control to avoid confusion
-  audioToggleBtn.style.display = isOnlineClient() ? 'none' : 'flex';
-  if (isOnlineClient() && window.quantumAudio) {
-    try { window.quantumAudio.stopTensionMusic(); } catch (_) {}
-  }
+  audioToggleBtn.style.display = 'flex';
 }
 
 function renderLobbyList(containerId, lobby) {
@@ -145,9 +140,17 @@ function syncClientFromHost(payload) {
   const myPeerId = window.Network.getPeerId();
   myPlayerId = peerToPlayerMap[myPeerId] || null;
 
-  // Joining devices stay silent — host device carries music/SFX
-  stopGameMusic();
   syncAudioToggleVisibility();
+
+  // Start / keep tension music on joining devices when a match is running
+  if (
+    gameState.phase !== 'setup' &&
+    gameState.phase !== 'game_over' &&
+    !audioMuted
+  ) {
+    startGameMusic();
+    updateTensionIntensity();
+  }
 
   renderActiveRulesTags();
   renderArenaNodeCards();
@@ -177,6 +180,7 @@ function syncClientFromHost(payload) {
       if (lastSyncedPhase !== 'input-open') {
         openTurnInputFor(me.name);
         lastSyncedPhase = 'input-open';
+        playSelectSound();
       }
     } else {
       lastSyncedPhase = 'input-wait';
@@ -203,8 +207,9 @@ function syncClientFromHost(payload) {
   }
 
   if (phase === 'reveal') {
+    if (lastSyncedPhase !== 'reveal') playTickSound();
     lastSyncedPhase = phase;
-    if (clientStatus) clientStatus.textContent = 'All values locked. Calculating results...';
+    if (clientStatus) clientStatus.textContent = 'All values locked. Waiting for host to Execute Evaluation...';
     gameConfig.players.forEach(p => {
       if (!p.isAlive) return;
       const badge = document.getElementById(`node-val-${p.id}`);
@@ -218,6 +223,9 @@ function syncClientFromHost(payload) {
   }
 
   if (phase === 'meltdown_check') {
+    if (lastSyncedPhase !== 'meltdown_check') {
+      playClankSound();
+    }
     lastSyncedPhase = phase;
     if (gameState.history.length > 0) {
       const lastRound = gameState.history[gameState.history.length - 1];
@@ -250,11 +258,12 @@ function syncClientFromHost(payload) {
       const winner = gameConfig.players.find(p => p.id === lastRound.winnerId);
       if (clientStatus) {
         clientStatus.textContent = winner
-          ? `Target ${lastRound.target.toFixed(2)}. ${winner.name} wins this round.`
-          : `Target ${lastRound.target.toFixed(2)}. Continuing...`;
+          ? `Target ${lastRound.target.toFixed(2)}. ${winner.name} wins this round. Waiting for host...`
+          : `Target ${lastRound.target.toFixed(2)}. Waiting for host...`;
       }
+      updateTensionIntensity();
     } else if (clientStatus) {
-      clientStatus.textContent = 'Updating cores...';
+      clientStatus.textContent = 'Waiting for host...';
     }
     switchScreen('arena');
     return;
@@ -314,7 +323,6 @@ function initApp() {
       msg.textContent = `Connected to room ${code}. Waiting for host to start...`;
       document.getElementById('btn-join-room').disabled = true;
       renderLobbyList('join-lobby-list', lobby);
-      stopGameMusic();
       syncAudioToggleVisibility();
     };
 
@@ -1044,14 +1052,6 @@ function checkAllInputsReceived() {
     if (isOnlineHost()) {
        window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
     }
-
-    // Auto-continue so play never stalls waiting on the host button
-    const evalToken = (gameState._autoToken = (gameState._autoToken || 0) + 1);
-    setTimeout(() => {
-      if (gameState.phase === 'reveal' && gameState._autoToken === evalToken) {
-        evaluateRound();
-      }
-    }, 900);
   }
 }
 
@@ -1445,14 +1445,6 @@ function evaluateRound() {
   if (isOnlineHost()) {
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
-
-  // Auto-advance meltdown / next round so the match keeps flowing
-  const meltToken = (gameState._autoToken = (gameState._autoToken || 0) + 1);
-  setTimeout(() => {
-    if (gameState.phase === 'meltdown_check' && gameState._autoToken === meltToken) {
-      prepareNextRoundOrFinish();
-    }
-  }, 1800);
 }
 
 // Plot numbers on the visual slider scale
