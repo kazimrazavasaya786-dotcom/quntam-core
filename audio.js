@@ -273,10 +273,10 @@ class QuantumAudio {
     this._tensionPlaying = true;
     this._tensionIntensity = 0.15;
 
-    // Master gain for entire music bus
+    // Master gain for entire music bus (boosted — previously too quiet)
     this._musicMaster = this.ctx.createGain();
     this._musicMaster.gain.setValueAtTime(0.0, this.ctx.currentTime);
-    this._musicMaster.gain.linearRampToValueAtTime(1.0, this.ctx.currentTime + 2.0);
+    this._musicMaster.gain.linearRampToValueAtTime(3.5, this.ctx.currentTime + 1.2);
     this._musicMaster.connect(this.ctx.destination);
 
     this._startDronePad();
@@ -316,7 +316,7 @@ class QuantumAudio {
     // Drone gets louder and more dissonant
     if (this._droneGain) {
       this._droneGain.gain.cancelScheduledValues(now);
-      this._droneGain.gain.setTargetAtTime(0.04 + t * 0.06, now, 0.5);
+      this._droneGain.gain.setTargetAtTime(0.22 + t * 0.28, now, 0.5);
     }
     // Detune drone for dissonance at high intensity
     if (this._droneOsc2) {
@@ -327,7 +327,7 @@ class QuantumAudio {
     // Sub bass throbs harder
     if (this._subGain) {
       this._subGain.gain.cancelScheduledValues(now);
-      this._subGain.gain.setTargetAtTime(0.06 + t * 0.10, now, 0.5);
+      this._subGain.gain.setTargetAtTime(0.28 + t * 0.35, now, 0.5);
     }
     // Sub LFO rate increases
     if (this._subLfo) {
@@ -342,13 +342,13 @@ class QuantumAudio {
     }
     if (this._noiseGain) {
       this._noiseGain.gain.cancelScheduledValues(now);
-      this._noiseGain.gain.setTargetAtTime(0.01 + t * 0.05, now, 0.5);
+      this._noiseGain.gain.setTargetAtTime(0.06 + t * 0.18, now, 0.5);
     }
 
     // Pulse volume
     if (this._pulseGain) {
       this._pulseGain.gain.cancelScheduledValues(now);
-      this._pulseGain.gain.setTargetAtTime(0.02 + t * 0.08, now, 0.5);
+      this._pulseGain.gain.setTargetAtTime(0.14 + t * 0.28, now, 0.5);
     }
   }
 
@@ -368,7 +368,7 @@ class QuantumAudio {
     filter.frequency.setValueAtTime(220, this.ctx.currentTime);
     filter.Q.setValueAtTime(2, this.ctx.currentTime);
 
-    gain.gain.setValueAtTime(0.04, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.22, this.ctx.currentTime);
 
     osc1.connect(filter);
     osc2.connect(filter);
@@ -404,12 +404,12 @@ class QuantumAudio {
     osc.type = 'sine';
     osc.frequency.setValueAtTime(36.7, this.ctx.currentTime); // D1
 
-    gain.gain.setValueAtTime(0.06, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.28, this.ctx.currentTime);
 
     // LFO modulates volume for a throbbing pulse
     lfo.type = 'sine';
     lfo.frequency.setValueAtTime(0.5, this.ctx.currentTime);
-    lfoGain.gain.setValueAtTime(0.04, this.ctx.currentTime);
+    lfoGain.gain.setValueAtTime(0.16, this.ctx.currentTime);
 
     lfo.connect(lfoGain);
     lfoGain.connect(gain.gain);
@@ -446,7 +446,7 @@ class QuantumAudio {
     filter.Q.setValueAtTime(0.8, this.ctx.currentTime);
 
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.015, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
 
     src.connect(filter);
     filter.connect(gain);
@@ -462,7 +462,7 @@ class QuantumAudio {
   // Layer 4: Rhythmic pulse sequencer — timed blips that create heartbeat tension
   _startPulseSequencer() {
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.16, this.ctx.currentTime);
     gain.connect(this._musicMaster);
     this._pulseGain = gain;
 
