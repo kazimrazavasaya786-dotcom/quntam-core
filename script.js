@@ -21,6 +21,7 @@ let gameState = {
 
 let peerToPlayerMap = {}; // mapping of peerId -> playerId
 let myPlayerId = 1; // Default to Host (Player 1)
+let lastSyncedPhase = null; // avoid reopening turn overlay on every host tick
 
 // DOM Elements
 const screens = {
@@ -30,20 +31,17 @@ const screens = {
   victory: document.getElementById('victory-screen')
 };
 
-// Setup Screen Inputs
 const btnNodes4 = document.getElementById('btn-nodes-4');
 const btnNodes5 = document.getElementById('btn-nodes-5');
 const nodeConfigList = document.getElementById('node-config-list');
 const btnStartGame = document.getElementById('btn-start-game');
 
-// Rule cards
 const ruleCards = {
   1: document.getElementById('rule-card-1'),
   2: document.getElementById('rule-card-2'),
   3: document.getElementById('rule-card-3')
 };
 
-// Turn Input elements
 const turnPlayerName = document.getElementById('turn-player-name');
 const turnPrompt = document.getElementById('turn-prompt');
 const btnAccessConfirm = document.getElementById('btn-access-confirm');
@@ -52,7 +50,6 @@ const nodeInputSlider = document.getElementById('node-input-slider');
 const sliderValDisplay = document.getElementById('slider-val-display');
 const btnLockInput = document.getElementById('btn-lock-input');
 
-// Arena Elements
 const lcdAverage = document.getElementById('lcd-average');
 const lcdTarget = document.getElementById('lcd-target');
 const scaleTicks = document.getElementById('scale-ticks');
@@ -65,18 +62,203 @@ const roundNumberLcd = document.getElementById('round-number-lcd');
 const activeRulesTags = document.getElementById('active-rules-tags');
 const historyLogs = document.getElementById('history-logs');
 
-// Audio Toggle
 const audioToggleBtn = document.getElementById('audio-toggle-btn');
 let audioMuted = false;
 
-// Protocols Modal Elements
 const btnProtocols = document.getElementById('btn-protocols');
 const btnCloseProtocols = document.getElementById('btn-close-protocols');
 const protocolsModal = document.getElementById('protocols-modal');
 
-// Default Node Names and AI Personalities
 const defaultNames = ['Node Alpha', 'Node Beta', 'Node Gamma', 'Node Delta', 'Node Epsilon'];
 const aiPersonalities = ['rationalist', 'analyst', 'maverick', 'defender'];
+
+function isOnlineHost() {
+  return window.Network && window.Network.getMode() === 'host';
+}
+
+function isOnlineClient() {
+  return window.Network && window.Network.getMode() === 'client';
+}
+
+function isOnlineGame() {
+  return isOnlineHost() || isOnlineClient();
+}
+
+function renderLobbyList(containerId, lobby) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!lobby || lobby.length === 0) {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = lobby.map((p, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.55rem;margin-bottom:0.35rem;background:rgba(255,255,255,0.03);border:1px solid rgba(0,229,255,0.12);border-radius:6px;font-size:0.85rem;">
+      <span>${p.name || ('Player ' + (i + 1))}</span>
+      <span style="color:var(--accent-cyan);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;">${p.isHost ? 'Host' : 'Joined'}</span>
+    </div>
+  `).join('');
+}
+
+function openTurnInputFor(playerName) {
+  turnPlayerName.textContent = playerName;
+  nodeInputSlider.value = 50;
+  sliderValDisplay.textContent = 50;
+
+  if (isOnlineGame()) {
+    // Online: no "pass the device" gate — each person has their own screen
+    btnAccessConfirm.style.display = 'none';
+    turnPrompt.style.display = 'none';
+    turnPrompt.textContent = 'Pick your secret number (0–100). Other players cannot see this.';
+    turnInputControls.style.display = 'block';
+  } else {
+    btnAccessConfirm.style.display = 'block';
+    turnPrompt.style.display = 'block';
+    turnPrompt.textContent = 'Please pass control to this administrator. Ensure all other administrators cannot view the input console.';
+    turnInputControls.style.display = 'none';
+  }
+  switchScreen('turn');
+}
+
+function syncClientFromHost(payload) {
+  gameConfig = payload.gameConfig;
+  gameState = payload.gameState;
+  peerToPlayerMap = payload.peerToPlayerMap || {};
+
+  const myPeerId = window.Network.getPeerId();
+  myPlayerId = peerToPlayerMap[myPeerId] || null;
+
+  renderActiveRulesTags();
+  renderArenaNodeCards();
+  resetScalePlot();
+  roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
+  renderLogs();
+  btnArenaAction.style.display = 'none';
+  btnAbortGame.style.display = 'none';
+
+  if (gameState.history.length > 0) {
+    const lastRound = gameState.history[gameState.history.length - 1];
+    lcdAverage.textContent = lastRound.average.toFixed(2);
+    lcdTarget.textContent = lastRound.target.toFixed(2);
+  } else {
+    lcdAverage.textContent = '--.--';
+    lcdTarget.textContent = '--.--';
+  }
+
+  const phase = gameState.phase;
+
+  if (phase === 'input') {
+    const me = myPlayerId ? gameConfig.players.find(p => p.id === myPlayerId) : null;
+    if (me && me.isAlive && me.lastChoice === null) {
+      if (lastSyncedPhase !== 'input-open') {
+        openTurnInputFor(me.name);
+        lastSyncedPhase = 'input-open';
+      }
+    } else {
+      lastSyncedPhase = 'input-wait';
+      arenaInstructions.textContent = me && me.lastChoice !== null
+        ? 'Value locked. Waiting for other nodes...'
+        : 'Waiting for nodes to lock inputs... (Spectating)';
+      // Keep badges
+      gameConfig.players.forEach(p => {
+        if (!p.isAlive) return;
+        const badge = document.getElementById(`node-val-${p.id}`);
+        if (!badge) return;
+        if (p.id === myPlayerId && p.lastChoice !== null) {
+          badge.textContent = 'LOCKED';
+          badge.className = 'node-value-badge locked';
+        } else if (p.lastChoice !== null && p.type === 'human') {
+          badge.textContent = 'LOCKED';
+          badge.className = 'node-value-badge locked';
+        } else {
+          badge.textContent = 'WAITING';
+          badge.className = 'node-value-badge';
+        }
+      });
+      switchScreen('arena');
+    }
+    return;
+  }
+
+  if (phase === 'reveal') {
+    lastSyncedPhase = phase;
+    arenaInstructions.textContent = 'All values locked. Host is running evaluation...';
+    gameConfig.players.forEach(p => {
+      if (!p.isAlive) return;
+      const badge = document.getElementById(`node-val-${p.id}`);
+      if (badge) {
+        badge.textContent = 'LOCKED';
+        badge.className = 'node-value-badge locked';
+      }
+    });
+    switchScreen('arena');
+    return;
+  }
+
+  if (phase === 'meltdown_check') {
+    lastSyncedPhase = phase;
+    if (gameState.history.length > 0) {
+      const lastRound = gameState.history[gameState.history.length - 1];
+      gameConfig.players.forEach(p => {
+        if (!p.isAlive) return;
+        const badge = document.getElementById(`node-val-${p.id}`);
+        if (!badge) return;
+        const pChoice = lastRound.choices[p.name];
+        const isDq = lastRound.disqualifiedIds.includes(p.id);
+        const isWinner = lastRound.winnerId === p.id;
+
+        if (isDq) {
+          badge.textContent = `DQ (${pChoice})`;
+          badge.className = 'node-value-badge disqualified';
+        } else if (isWinner) {
+          badge.textContent = String(pChoice);
+          badge.className = 'node-value-badge winner green-glow';
+        } else if (pChoice !== null && pChoice !== undefined) {
+          badge.textContent = String(pChoice);
+          badge.className = 'node-value-badge revealed';
+        }
+      });
+      plotScaleResults(
+        gameConfig.players
+          .filter(p => p.isAlive && !lastRound.disqualifiedIds.includes(p.id) && lastRound.choices[p.name] !== null && lastRound.choices[p.name] !== undefined)
+          .map(p => ({ id: p.id, choice: lastRound.choices[p.name] })),
+        lastRound.target,
+        lastRound.disqualifiedIds
+      );
+      const winner = gameConfig.players.find(p => p.id === lastRound.winnerId);
+      arenaInstructions.textContent = winner
+        ? `Target ${lastRound.target.toFixed(2)}. ${winner.name} wins this round. Waiting for host...`
+        : `Target ${lastRound.target.toFixed(2)}. Waiting for host to continue...`;
+    } else {
+      arenaInstructions.textContent = 'Waiting for host...';
+    }
+    switchScreen('arena');
+    return;
+  }
+
+  if (phase === 'game_over') {
+    lastSyncedPhase = phase;
+    const survivors = gameConfig.players.filter(p => p.isAlive);
+    declareGameOver(survivors);
+    return;
+  }
+
+  // arena / setup / waiting for host to begin round
+  lastSyncedPhase = phase;
+  if (phase === 'arena') {
+    arenaInstructions.textContent = `Round ${gameState.currentRound} — waiting for host to begin inputs.`;
+    gameConfig.players.forEach(p => {
+      const badge = document.getElementById(`node-val-${p.id}`);
+      if (!badge) return;
+      badge.textContent = p.isAlive ? 'WAITING' : 'OFFLINE';
+      badge.className = p.isAlive ? 'node-value-badge' : 'node-value-badge disqualified';
+    });
+    switchScreen('arena');
+  } else if (screens[phase]) {
+    switchScreen(phase);
+  }
+}
 
 // Initialize App
 function initApp() {
@@ -89,100 +271,82 @@ function initApp() {
     window.Network.events.onRoomCreated = (code) => {
       document.getElementById('host-room-code').textContent = code;
     };
-    
+
     window.Network.events.onClientConnected = (peerId, count) => {
       document.getElementById('connected-players-count').textContent = count;
     };
+
+    window.Network.events.onLobbyUpdate = (lobby) => {
+      const remotes = (lobby || []).filter(p => !p.isHost).length;
+      const countEl = document.getElementById('connected-players-count');
+      if (countEl) countEl.textContent = remotes;
+      renderLobbyList('host-lobby-list', lobby);
+      renderLobbyList('join-lobby-list', lobby);
+    };
+
+    window.Network.events.onJoinedRoom = (code, lobby) => {
+      const msg = document.getElementById('join-status-msg');
+      msg.style.color = 'var(--accent-cyan)';
+      msg.textContent = `Connected to room ${code}. Waiting for host to start...`;
+      document.getElementById('btn-join-room').disabled = true;
+      renderLobbyList('join-lobby-list', lobby);
+    };
+
+    window.Network.events.onError = (message) => {
+      const msg = document.getElementById('join-status-msg');
+      if (msg) {
+        msg.style.color = 'var(--accent-orange)';
+        msg.textContent = message || 'Connection error';
+      }
+      alert(message || 'Network error');
+    };
+
+    window.Network.events.onConnectionLost = (message) => {
+      if (isOnlineClient() && gameState.phase !== 'setup' && gameState.phase !== 'game_over') {
+        alert(message || 'Disconnected from host');
+        gameState.phase = 'setup';
+        switchScreen('setup');
+        const msg = document.getElementById('join-status-msg');
+        if (msg) {
+          msg.style.color = 'var(--accent-orange)';
+          msg.textContent = message || 'Disconnected';
+        }
+        document.getElementById('btn-join-room').disabled = false;
+      } else if (isOnlineHost()) {
+        // Soft notice only — remaining players can continue
+        console.warn(message);
+      } else {
+        const msg = document.getElementById('join-status-msg');
+        if (msg) {
+          msg.style.color = 'var(--accent-orange)';
+          msg.textContent = message || 'Disconnected';
+        }
+        document.getElementById('btn-join-room').disabled = false;
+      }
+    };
     
     window.Network.events.onClientInput = (peerId, data) => {
-      if (window.Network.getMode() !== 'host') return;
+      if (!isOnlineHost()) return;
       const pId = peerToPlayerMap[peerId];
       if (pId) {
         const player = gameConfig.players.find(p => p.id === pId);
-        if (player && player.isAlive) {
+        if (player && player.isAlive && player.lastChoice === null) {
           player.lastChoice = data.choice;
+          // Refresh waiting UI for host
+          const badge = document.getElementById(`node-val-${player.id}`);
+          if (badge) {
+            badge.textContent = 'LOCKED';
+            badge.className = 'node-value-badge locked';
+          }
+          window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
           checkAllInputsReceived();
         }
       }
     };
     
     window.Network.events.onStateUpdate = (payload) => {
-      console.log("Got state from host", payload);
-      gameConfig = payload.gameConfig;
-      gameState = payload.gameState;
-      peerToPlayerMap = payload.peerToPlayerMap;
-      
-      const myPeerId = window.Network.getPeerId();
-      myPlayerId = peerToPlayerMap[myPeerId] || null;
-      
-      renderActiveRulesTags();
-      renderArenaNodeCards();
-      resetScalePlot();
-      
-      if (gameState.history.length > 0) {
-          const lastRound = gameState.history[gameState.history.length - 1];
-          lcdAverage.textContent = lastRound.average.toFixed(2);
-          lcdTarget.textContent = lastRound.target.toFixed(2);
-      }
-      roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
-      renderLogs();
-      
-      if (gameState.phase === 'input') {
-        if (myPlayerId) {
-           const me = gameConfig.players.find(p => p.id === myPlayerId);
-           if (me && me.isAlive && me.lastChoice === null) {
-              turnPlayerName.textContent = me.name;
-              btnAccessConfirm.style.display = 'block';
-              turnPrompt.style.display = 'block';
-              turnInputControls.style.display = 'none';
-              nodeInputSlider.value = 50;
-              sliderValDisplay.textContent = 50;
-              switchScreen('turn');
-           } else {
-              arenaInstructions.textContent = "Waiting for other nodes to lock inputs...";
-              switchScreen('arena');
-           }
-        } else {
-           arenaInstructions.textContent = "Waiting for nodes to lock inputs... (Spectating)";
-           switchScreen('arena');
-        }
-      } else if (gameState.phase === 'reveal' || gameState.phase === 'meltdown_check') {
-         arenaInstructions.textContent = "Host is evaluating results...";
-         btnArenaAction.style.display = 'none';
-         
-         if (gameState.history.length > 0) {
-            const lastRound = gameState.history[gameState.history.length - 1];
-            gameConfig.players.forEach(p => {
-              if (!p.isAlive) return;
-              const badge = document.getElementById(`node-val-${p.id}`);
-              const pChoice = lastRound.choices[p.name];
-              const isDq = lastRound.disqualifiedIds.includes(p.id);
-              const isWinner = lastRound.winnerId === p.id;
-              
-              if (isDq) {
-                 badge.textContent = `DQ (${pChoice})`;
-                 badge.className = 'node-value-badge disqualified';
-              } else if (isWinner) {
-                 badge.textContent = pChoice.toString();
-                 badge.className = 'node-value-badge winner green-glow';
-              } else {
-                 badge.textContent = pChoice.toString();
-                 badge.className = 'node-value-badge revealed';
-              }
-            });
-            plotScaleResults(
-              gameConfig.players.filter(p => !lastRound.disqualifiedIds.includes(p.id) && p.isAlive && lastRound.choices[p.name] !== null).map(p => ({id: p.id, choice: lastRound.choices[p.name]})), 
-              lastRound.target, 
-              lastRound.disqualifiedIds
-            );
-         }
-         switchScreen('arena');
-      } else if (gameState.phase === 'game_over') {
-         const survivors = gameConfig.players.filter(p => p.isAlive);
-         declareGameOver(survivors);
-      } else {
-         switchScreen(gameState.phase);
-      }
+      if (!isOnlineClient()) return;
+      syncClientFromHost(payload);
     };
   }
   
@@ -215,6 +379,7 @@ function setupEventListeners() {
     standardSetupSections.style.display = 'block';
     btnStartGame.style.display = 'block';
     btnStartGame.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Initialize Sequence';
+    if (window.Network) window.Network.goLocal();
   });
 
   btnModeHost.addEventListener('click', () => {
@@ -227,10 +392,11 @@ function setupEventListeners() {
     onlineHostSection.style.display = 'block';
     standardSetupSections.style.display = 'block';
     btnStartGame.style.display = 'block';
-    btnStartGame.innerHTML = 'Start Hosted Game';
-    
-    if (window.Network && window.Network.getMode() !== 'host') {
-      window.Network.startHosting();
+    btnStartGame.innerHTML = 'Start Online Game';
+
+    const hostName = document.getElementById('host-player-name').value.trim() || 'Host';
+    if (window.Network) {
+      window.Network.startHosting(hostName);
     }
   });
 
@@ -243,17 +409,51 @@ function setupEventListeners() {
     onlineJoinSection.style.display = 'block';
     onlineHostSection.style.display = 'none';
     standardSetupSections.style.display = 'none';
-    btnStartGame.style.display = 'none'; // Joining players wait for host to start
+    btnStartGame.style.display = 'none';
+    document.getElementById('btn-join-room').disabled = false;
+    document.getElementById('join-status-msg').textContent = '';
+    renderLobbyList('join-lobby-list', []);
+    if (window.Network) window.Network.goLocal();
   });
 
   document.getElementById('btn-join-room').addEventListener('click', () => {
     playSelectSound();
     const code = document.getElementById('join-room-code').value.trim();
+    const name = document.getElementById('join-player-name').value.trim() || 'Remote Node';
     if (code.length >= 4) {
-      document.getElementById('join-status-msg').textContent = "Connecting to " + code + "...";
-      if (window.Network) window.Network.joinRoom(code);
+      const msg = document.getElementById('join-status-msg');
+      msg.style.color = 'var(--accent-orange)';
+      msg.textContent = 'Connecting to ' + code.toUpperCase() + '...';
+      if (window.Network) window.Network.joinRoom(code, name);
+    } else {
+      document.getElementById('join-status-msg').textContent = 'Enter the 4-letter room code';
     }
   });
+
+  const copyBtn = document.getElementById('btn-copy-room-code');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      playSelectSound();
+      const code = document.getElementById('host-room-code').textContent;
+      if (!code || code === '----') return;
+      try {
+        await navigator.clipboard.writeText(code);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy Code'; }, 1200);
+      } catch (_) {
+        prompt('Copy this room code:', code);
+      }
+    });
+  }
+
+  const hostNameInput = document.getElementById('host-player-name');
+  if (hostNameInput) {
+    hostNameInput.addEventListener('change', () => {
+      if (isOnlineHost() && window.Network) {
+        window.Network.setDisplayName(hostNameInput.value.trim() || 'Host');
+      }
+    });
+  }
   // Node Count Buttons
   btnNodes4.addEventListener('click', () => {
     playSelectSound();
@@ -517,32 +717,48 @@ function startGame() {
   lcdTarget.textContent = '--.--';
 
   gameState.phase = 'arena';
+  lastSyncedPhase = null;
   switchScreen('arena');
+  btnArenaAction.style.display = 'block';
+  btnAbortGame.style.display = 'block';
   
-  if (window.Network && window.Network.getMode() === 'host') {
-    // Map connected peers to human slots
-    const peers = window.Network.getConnectedPeers();
-    let peerIndex = 0;
-    myPlayerId = gameConfig.players[0].id; // Host is Player 1
-    
+  if (isOnlineHost()) {
+    // Auto-seat: Host + connected friends as humans; leftover seats become AI
+    const lobby = window.Network.getLobby();
+    const hostName = document.getElementById('host-player-name').value.trim()
+      || window.Network.getDisplayName()
+      || 'Host';
+    const remotes = lobby.filter(p => !p.isHost);
+    peerToPlayerMap = {};
+    myPlayerId = gameConfig.players[0].id;
+
+    gameConfig.players[0].type = 'human';
+    gameConfig.players[0].personality = 'none';
+    gameConfig.players[0].name = hostName;
+
+    let remoteIndex = 0;
     for (let i = 1; i < gameConfig.players.length; i++) {
-       if (gameConfig.players[i].type === 'human') {
-          if (peerIndex < peers.length) {
-             peerToPlayerMap[peers[peerIndex]] = gameConfig.players[i].id;
-             gameConfig.players[i].name = "Remote Node " + (peerIndex + 1);
-             peerIndex++;
-          } else {
-             // Convert unfilled human slot to AI so the game doesn't get stuck waiting
-             gameConfig.players[i].type = 'ai';
-             gameConfig.players[i].personality = 'rationalist';
-             gameConfig.players[i].name = "AI Sub-Core " + i;
-          }
-       }
+      if (remoteIndex < remotes.length) {
+        const remote = remotes[remoteIndex++];
+        gameConfig.players[i].type = 'human';
+        gameConfig.players[i].personality = 'none';
+        gameConfig.players[i].name = remote.name || (`Remote ${remoteIndex}`);
+        peerToPlayerMap[remote.peerId] = gameConfig.players[i].id;
+      } else {
+        // Fill with AI — keep configured personality when possible
+        const personalitySelect = document.getElementById(`node-ai-personality-${i}`);
+        const nameInput = document.getElementById(`node-name-${i}`);
+        gameConfig.players[i].type = 'ai';
+        gameConfig.players[i].personality = (personalitySelect && personalitySelect.value) || aiPersonalities[(i - 1) % aiPersonalities.length];
+        gameConfig.players[i].name = (nameInput && nameInput.value.trim()) || defaultNames[i] || (`AI Core ${i + 1}`);
+      }
     }
-    
-    // Update node cards visually if types changed
+
+    // Extra friends beyond seat count spectate (no mapping)
     renderArenaNodeCards();
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  } else if (!isOnlineClient()) {
+    myPlayerId = gameConfig.players[0].id;
   }
 
   // Start tension music
@@ -554,8 +770,12 @@ function startGame() {
 // Abort Game
 function abortGame() {
   playSelectSound();
+  if (isOnlineClient()) return; // Host controls abort
   if (confirm("Are you sure you want to abort the current simulation sequence?")) {
     if (window.quantumAudio) window.quantumAudio.stopTensionMusic();
+    if (isOnlineHost() && window.Network.broadcastAbort) {
+      window.Network.broadcastAbort();
+    }
     gameState.phase = 'setup';
     switchScreen('setup');
   }
@@ -700,6 +920,7 @@ function resetScalePlot() {
 
 // Handle control button clicks in the Sidebar
 function handleArenaAction() {
+  if (isOnlineClient()) return; // Only the host advances phases online
   playSelectSound();
   
   if (gameState.phase === 'arena' && btnArenaAction.textContent === "Begin Inputs") {
@@ -717,26 +938,23 @@ function handleArenaAction() {
 
 // Cycle through human inputs and AI choices
 function gatherNextInput() {
-  if (window.Network && window.Network.getMode() === 'host') {
+  if (isOnlineHost()) {
     // Multiplayer Simultaneous Turn
     const hostPlayer = gameConfig.players.find(p => p.id === myPlayerId);
     
     if (hostPlayer && hostPlayer.isAlive && hostPlayer.lastChoice === null) {
-      turnPlayerName.textContent = hostPlayer.name;
-      btnAccessConfirm.style.display = 'block';
-      turnPrompt.style.display = 'block';
-      turnInputControls.style.display = 'none';
-      nodeInputSlider.value = 50;
-      sliderValDisplay.textContent = 50;
-      switchScreen('turn');
+      openTurnInputFor(hostPlayer.name);
     } else {
       arenaInstructions.textContent = "Waiting for network nodes to lock inputs...";
       btnArenaAction.style.display = 'none';
+      switchScreen('arena');
     }
     
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
-    checkAllInputsReceived(); // In case host is the only human and already inputted
+    checkAllInputsReceived();
     
+  } else if (isOnlineClient()) {
+    return;
   } else {
     // Local Hotseat Sequential Turn
     const nextHumanIndex = gameConfig.players.findIndex((p, idx) => 
@@ -744,28 +962,17 @@ function gatherNextInput() {
     );
 
     if (nextHumanIndex !== -1) {
-      // Open Secret turn modal
       gameState.activeHumanIndex = nextHumanIndex;
       const player = gameConfig.players[nextHumanIndex];
-      
-      // Reset Turn UI
-      turnPlayerName.textContent = player.name;
-      btnAccessConfirm.style.display = 'block';
-      turnPrompt.style.display = 'block';
-      turnInputControls.style.display = 'none';
-      nodeInputSlider.value = 50;
-      sliderValDisplay.textContent = 50;
-
-      switchScreen('turn');
+      openTurnInputFor(player.name);
     } else {
-      // All human choices collected. Now compute AI selections.
       checkAllInputsReceived();
     }
   }
 }
 
 function checkAllInputsReceived() {
-  if (window.Network && window.Network.getMode() === 'client') return; // Only host evaluates
+  if (isOnlineClient()) return; // Only host evaluates
   
   const allHumansInputted = gameConfig.players.every(p => 
     !p.isAlive || p.type !== 'human' || p.lastChoice !== null
@@ -783,12 +990,14 @@ function checkAllInputsReceived() {
     gameConfig.players.forEach(p => {
       if (p.isAlive) {
         const badge = document.getElementById(`node-val-${p.id}`);
-        badge.textContent = 'LOCKED';
-        badge.className = 'node-value-badge locked';
+        if (badge) {
+          badge.textContent = 'LOCKED';
+          badge.className = 'node-value-badge locked';
+        }
       }
     });
     
-    if (window.Network && window.Network.getMode() === 'host') {
+    if (isOnlineHost()) {
        window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
     }
   }
@@ -796,28 +1005,37 @@ function checkAllInputsReceived() {
 
 // Handle locking human input
 function handleLockInput() {
-  const choice = parseInt(nodeInputSlider.value);
+  const choice = parseInt(nodeInputSlider.value, 10);
   playSelectSound();
   
-  if (window.Network && window.Network.getMode() === 'client') {
-    // Client sends choice to host
+  if (isOnlineClient()) {
     window.Network.sendInputToHost(choice);
     
-    // Update local client UI
     const me = gameConfig.players.find(p => p.id === myPlayerId);
     if (me) me.lastChoice = choice;
     
+    lastSyncedPhase = 'input-wait';
     switchScreen('arena');
     arenaInstructions.textContent = "Input locked. Waiting for other nodes...";
+    const badge = document.getElementById(`node-val-${myPlayerId}`);
+    if (badge) {
+      badge.textContent = 'LOCKED';
+      badge.className = 'node-value-badge locked';
+    }
     
-  } else if (window.Network && window.Network.getMode() === 'host') {
-    // Host locks own choice
+  } else if (isOnlineHost()) {
     const me = gameConfig.players.find(p => p.id === myPlayerId);
     if (me) me.lastChoice = choice;
     
     switchScreen('arena');
     arenaInstructions.textContent = "Input locked. Waiting for network nodes...";
-    gatherNextInput(); // Re-trigger check
+    const badge = document.getElementById(`node-val-${myPlayerId}`);
+    if (badge) {
+      badge.textContent = 'LOCKED';
+      badge.className = 'node-value-badge locked';
+    }
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+    checkAllInputsReceived();
   } else {
     // Local hotseat
     const player = gameConfig.players[gameState.activeHumanIndex];
@@ -1170,7 +1388,7 @@ function evaluateRound() {
   gameState.phase = 'meltdown_check';
   btnArenaAction.textContent = "Process Core Meltdowns";
   
-  if (window.Network && window.Network.getMode() === 'host') {
+  if (isOnlineHost()) {
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
 }
@@ -1263,6 +1481,7 @@ function prepareNextRoundOrFinish() {
     roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
     arenaInstructions.textContent = `Round ${gameState.currentRound} setup complete. Press 'Begin Inputs' to gather values.`;
     btnArenaAction.textContent = "Begin Inputs";
+    btnArenaAction.style.display = 'block';
     
     // Clear plots and LCDs
     resetScalePlot();
@@ -1276,7 +1495,7 @@ function prepareNextRoundOrFinish() {
       badge.className = p.isAlive ? 'node-value-badge' : 'node-value-badge disqualified';
     });
     
-    if (window.Network && window.Network.getMode() === 'host') {
+    if (isOnlineHost()) {
       window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
     }
   }
@@ -1308,7 +1527,7 @@ function declareGameOver(survivors) {
   switchScreen('victory');
   
   gameState.phase = 'game_over';
-  if (window.Network && window.Network.getMode() === 'host') {
+  if (isOnlineHost()) {
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
 }
