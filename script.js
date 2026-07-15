@@ -763,6 +763,10 @@ function startGame() {
 
   // Start tension music
   if (!audioMuted && window.quantumAudio) {
+    window.quantumAudio.init();
+    if (window.quantumAudio.ctx && window.quantumAudio.ctx.state === 'suspended') {
+      window.quantumAudio.ctx.resume();
+    }
     window.quantumAudio.startTensionMusic();
   }
 }
