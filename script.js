@@ -773,6 +773,29 @@ function setupEventListeners() {
     });
   }
 
+  const btnSliderMinus = document.getElementById('btn-slider-minus');
+  const btnSliderPlus = document.getElementById('btn-slider-plus');
+  if (btnSliderMinus && btnSliderPlus) {
+    bindClick(btnSliderMinus, () => {
+      let val = parseInt(nodeInputSlider.value, 10);
+      if (val > 0) {
+        val--;
+        nodeInputSlider.value = val;
+        sliderValDisplay.textContent = val;
+        playTickSound();
+      }
+    });
+    bindClick(btnSliderPlus, () => {
+      let val = parseInt(nodeInputSlider.value, 10);
+      if (val < 100) {
+        val++;
+        nodeInputSlider.value = val;
+        sliderValDisplay.textContent = val;
+        playTickSound();
+      }
+    });
+  }
+
   bindClick(btnLockInput, handleLockInput);
 
   // Arena Screen Actions

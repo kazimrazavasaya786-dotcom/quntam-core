@@ -123,7 +123,11 @@
         
         <div id="turn-input-controls" style="display: none; animation: fadeIn 0.3s ease-out;">
           <div class="slider-container">
-            <div class="slider-val-display" id="slider-val-display">50</div>
+            <div class="slider-value-wrapper">
+              <button type="button" id="btn-slider-minus" class="btn-slider-adj" title="Decrease Value">-</button>
+              <div class="slider-val-display" id="slider-val-display">50</div>
+              <button type="button" id="btn-slider-plus" class="btn-slider-adj" title="Increase Value">+</button>
+            </div>
             <input type="range" id="node-input-slider" min="0" max="100" value="50">
           </div>
           <button id="btn-lock-input" class="btn btn-center">Lock Value</button>
