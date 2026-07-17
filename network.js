@@ -8,6 +8,19 @@ let netMode = 'local'; // 'local' | 'host' | 'client'
 let roomCode = null;
 let displayName = 'Node';
 
+function getProfileTheme(name) {
+  try {
+    const raw = localStorage.getItem('quantum_core_profiles');
+    if (raw) {
+      const profiles = JSON.parse(raw);
+      if (profiles[name] && profiles[name].selectedTheme) {
+        return profiles[name].selectedTheme;
+      }
+    }
+  } catch (e) {}
+  return 'green';
+}
+
 const PREFIX = 'QCORE-';
 
 const PEER_OPTIONS = {
@@ -76,9 +89,9 @@ function destroyPeer() {
 }
 
 function getLobbySnapshot() {
-  const list = [{ peerId: myPeerId, name: displayName, isHost: true }];
-  clientConns.forEach(({ peerId, name }) => {
-    list.push({ peerId, name: name || 'Remote Node', isHost: false });
+  const list = [{ peerId: myPeerId, name: displayName, isHost: true, theme: getProfileTheme(displayName) }];
+  clientConns.forEach(({ peerId, name, theme }) => {
+    list.push({ peerId, name: name || 'Remote Node', isHost: false, theme: theme || 'green' });
   });
   return list;
 }
@@ -108,11 +121,13 @@ function wireClientConnection(conn) {
     if (data.type === 'HELLO') {
       const existing = clientConns.find(c => c.peerId === conn.peer);
       const name = (data.name && String(data.name).trim()) || 'Remote Node';
+      const theme = data.theme || 'green';
       if (existing) {
         existing.name = name;
+        existing.theme = theme;
         existing.conn = conn;
       } else {
-        clientConns.push({ conn, peerId: conn.peer, name });
+        clientConns.push({ conn, peerId: conn.peer, name, theme });
       }
 
       sendToConn(conn, {
@@ -219,7 +234,8 @@ function joinRoom(code, name) {
     hostConn = peer.connect(hostId, { reliable: true });
 
     hostConn.on('open', () => {
-      hostConn.send({ type: 'HELLO', name: displayName, peerId: myPeerId });
+      const theme = getProfileTheme(displayName);
+      hostConn.send({ type: 'HELLO', name: displayName, peerId: myPeerId, theme });
     });
 
     hostConn.on('data', (data) => {

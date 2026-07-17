@@ -95,6 +95,14 @@
         <button type="button" id="btn-elimination-rules" class="btn btn-secondary btn-setup-panel">Add Elimination Rules From Start</button>
         <p id="elimination-rules-summary" class="elimination-rules-summary">No rules selected — all added on elimination</p>
       </div>
+
+      <!-- Node Archives (Local Profiles) -->
+      <div class="setup-section archives-section" id="archives-section">
+        <h3>Node Archives (Local Profiles)</h3>
+        <div id="archives-list" class="archives-list">
+          <!-- Populated dynamically by JS -->
+        </div>
+      </div>
       </div> <!-- End standard-setup-sections -->
 
       <button id="btn-start-game" class="btn btn-center">
@@ -145,6 +153,17 @@
           <div class="scale-track-container" id="scale-track-container">
             <div class="scale-ticks" id="scale-ticks"></div>
             <div id="scale-plots"></div>
+          </div>
+          
+          <!-- Meta predictability threat meter -->
+          <div class="threat-meter-container" id="threat-meter-container">
+            <div class="threat-meter-header">
+              <span class="threat-meter-label">Meta Predictability Threat</span>
+              <span class="threat-meter-value stable" id="threat-meter-value">0% (STABLE)</span>
+            </div>
+            <div class="threat-meter-bar-wrapper">
+              <div class="threat-meter-bar stable" id="threat-meter-bar" style="width: 0%;"></div>
+            </div>
           </div>
         </div>
 
@@ -212,6 +231,17 @@
       <p style="color: var(--text-secondary); font-size: 0.95rem; line-height: 1.5; max-width: 450px; margin: 0 auto;">
         The system stability has stabilized. The remaining Node core has successfully cleared the mainframe shutdown sequence. All other nodes have been flushed.
       </p>
+      
+      <!-- Rematch / Streak Panel -->
+      <div id="victory-rematch-panel" class="victory-rematch-panel" style="display: none;">
+        <div class="streak-badge" id="victory-streak-badge">🔥 NODE: 0 GAME WIN STREAK</div>
+        <div class="rematch-timer-text">Auto-Rematch starting in <span id="rematch-timer-val" class="rematch-timer-val">10</span>s...</div>
+        <div class="victory-rematch-buttons">
+          <button id="btn-rematch-now" class="btn btn-rematch-now">Rematch Now</button>
+          <button id="btn-rematch-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+
       <button id="btn-restart-game" class="btn btn-center">
         Reinitialize Mainframe
       </button>

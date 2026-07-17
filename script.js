@@ -288,6 +288,10 @@ function openTurnInputFor(playerName) {
 }
 
 function syncClientFromHost(payload) {
+  if (rematchTimerId && payload.gameState && payload.gameState.phase !== 'game_over') {
+    clearInterval(rematchTimerId);
+    rematchTimerId = null;
+  }
   gameConfig = payload.gameConfig;
   gameState = payload.gameState;
   peerToPlayerMap = payload.peerToPlayerMap || {};
@@ -485,6 +489,7 @@ function initApp() {
   renderNodeConfigList();
   renderScaleTicks();
   syncRuleCardsUI();
+  renderArchivesList();
   
   // Set up Network Events
   if (window.Network) {
@@ -787,12 +792,43 @@ function setupEventListeners() {
   // Victory Screen Actions
   bindClick(document.getElementById('btn-restart-game'), () => {
     playSelectSound();
+    if (rematchTimerId) {
+      clearInterval(rematchTimerId);
+      rematchTimerId = null;
+    }
     gameState.phase = 'setup';
     gameState.ruleNoticeQueue = [];
     hideRuleNoticeModal();
     syncRuleCardsUI();
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
+    if (isOnlineHost()) {
+      window.Network.broadcastAbort();
+    }
+  });
+
+  bindClick(document.getElementById('btn-rematch-now'), () => {
+    if (!isOnlineClient()) {
+      triggerRematch();
+    }
+  });
+
+  bindClick(document.getElementById('btn-rematch-cancel'), () => {
+    if (rematchTimerId) {
+      clearInterval(rematchTimerId);
+      rematchTimerId = null;
+    }
+    playSelectSound();
+    document.getElementById('victory-rematch-panel').style.display = 'none';
+    gameState.phase = 'setup';
+    gameState.ruleNoticeQueue = [];
+    hideRuleNoticeModal();
+    syncRuleCardsUI();
+    document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
+    switchScreen('setup');
+    if (isOnlineHost()) {
+      window.Network.broadcastAbort();
+    }
   });
 
   // Audio Toggle Button
@@ -972,9 +1008,10 @@ function renderNodeConfigList() {
       <span class="node-label">Node ${i + 1}</span>
       <div>
         <input type="text" id="node-name-${i}" value="${defaultNames[i]}" placeholder="Node Name">
+        <span class="node-profile-stats" id="node-stats-${i}" style="display: none;"></span>
       </div>
       <div>
-        <select id="node-type-${i}" onchange="togglePersonalityDropdown(${i})">
+        <select id="node-type-${i}">
           <option value="human" ${i === 0 ? 'selected' : ''}>Human Admin</option>
           <option value="ai" ${i !== 0 ? 'selected' : ''}>AI Core</option>
         </select>
@@ -987,8 +1024,34 @@ function renderNodeConfigList() {
           <option value="defender" ${i === 4 ? 'selected' : ''}>The Defender</option>
         </select>
       </div>
+      <div>
+        <select id="node-theme-${i}" class="node-theme-select">
+          <option value="green">Green Core</option>
+        </select>
+      </div>
     `;
     nodeConfigList.appendChild(row);
+
+    const typeSelect = row.querySelector(`#node-type-${i}`);
+    typeSelect.addEventListener('change', () => {
+      togglePersonalityDropdown(i);
+      updateNodeRowProfileDetails(i);
+    });
+
+    const nameInput = row.querySelector(`#node-name-${i}`);
+    nameInput.addEventListener('input', () => {
+      updateNodeRowProfileDetails(i);
+    });
+
+    const themeSelect = row.querySelector(`#node-theme-${i}`);
+    themeSelect.addEventListener('change', () => {
+      const pName = nameInput.value.trim();
+      if (pName) {
+        updateProfileStats(pName, { selectedTheme: themeSelect.value });
+      }
+    });
+
+    updateNodeRowProfileDetails(i);
   }
 }
 
@@ -1014,12 +1077,18 @@ function startGame() {
     const nameVal = document.getElementById(`node-name-${i}`).value.trim() || `Node ${i + 1}`;
     const typeVal = document.getElementById(`node-type-${i}`).value;
     const personalityVal = document.getElementById(`node-ai-personality-${i}`).value;
+    const themeVal = typeVal === 'human' ? document.getElementById(`node-theme-${i}`).value : 'green';
+    
+    if (typeVal === 'human') {
+      updateProfileStats(nameVal, { gamesPlayed: (getProfile(nameVal).gamesPlayed || 0) + 1 });
+    }
     
     gameConfig.players.push({
       id: i + 1,
       name: nameVal,
       type: typeVal,
       personality: typeVal === 'ai' ? personalityVal : 'none',
+      theme: themeVal,
       stability: 0,
       isAlive: true,
       lastChoice: null,
@@ -1085,6 +1154,8 @@ function startGame() {
     gameConfig.players[0].type = 'human';
     gameConfig.players[0].personality = 'none';
     gameConfig.players[0].name = hostName;
+    gameConfig.players[0].theme = getProfileTheme(hostName);
+    updateProfileStats(hostName, { gamesPlayed: (getProfile(hostName).gamesPlayed || 0) + 1 });
 
     let remoteIndex = 0;
     for (let i = 1; i < gameConfig.players.length; i++) {
@@ -1093,6 +1164,7 @@ function startGame() {
         gameConfig.players[i].type = 'human';
         gameConfig.players[i].personality = 'none';
         gameConfig.players[i].name = remote.name || (`Remote ${remoteIndex}`);
+        gameConfig.players[i].theme = remote.theme || 'green';
         peerToPlayerMap[remote.peerId] = gameConfig.players[i].id;
       } else {
         // Fill with AI — keep configured personality when possible
@@ -1101,6 +1173,7 @@ function startGame() {
         gameConfig.players[i].type = 'ai';
         gameConfig.players[i].personality = (personalitySelect && personalitySelect.value) || aiPersonalities[(i - 1) % aiPersonalities.length];
         gameConfig.players[i].name = (nameInput && nameInput.value.trim()) || defaultNames[i] || (`AI Core ${i + 1}`);
+        gameConfig.players[i].theme = 'green';
       }
     }
 
@@ -1703,7 +1776,7 @@ function renderArenaNodeCards() {
       <div class="plasma-tube-wrapper">
         <div class="plasma-tube-cap-top"></div>
         <div class="plasma-tube-cylinder">
-          <div class="plasma-fluid" id="plasma-fluid-${player.id}"></div>
+          <div class="plasma-fluid theme-${player.theme || 'green'}" id="plasma-fluid-${player.id}"></div>
         </div>
         <div class="plasma-tube-cap-bottom"></div>
         
@@ -2187,6 +2260,25 @@ function evaluateRound() {
   lowTaxHit = numActive > 2 && applyLowMajorityTax(activePlayers, stabilityUpdates);
   if (lowTaxHit) someoneSizzled = true;
 
+  // Near-miss calculations
+  gameConfig.players.forEach(p => {
+    p.nearMiss = false;
+  });
+  if (winnerId !== null && target > 0) {
+    activePlayers.forEach(p => {
+      if (p.id !== winnerId && !p.isDisqualified) {
+        const diff = Math.abs(p.lastChoice - target);
+        if (diff <= 1.5) {
+          p.nearMiss = true;
+          p.nearMissDiff = diff;
+          if (p.type === 'human') {
+            updateProfileStats(p.name, { nearMisses: (getProfile(p.name).nearMisses || 0) + 1 });
+          }
+        }
+      }
+    });
+  }
+
   // Save Round History
   const roundRecord = {
     round: gameState.currentRound,
@@ -2214,7 +2306,7 @@ function evaluateRound() {
   lcdTarget.textContent = target.toFixed(2);
 
   // Reveal player choices with a staggered scramble effect for tension
-  revealPlayerChoicesStaggered(winnerId);
+  revealPlayerChoicesStaggered(winnerId, target);
   gameConfig.players.forEach(p => {
     if (!p.isAlive) return;
     // Stability/liquid updates instantly; the number badge reveal is staggered above
@@ -2223,6 +2315,9 @@ function evaluateRound() {
 
   // Plot results on Scale UI
   plotScaleResults(validChoices, target, disqualifiedIds);
+
+  // Update threat meter display on Arena HUD
+  updateThreatMeterUI();
 
   // Render logs panel
   renderLogs();
@@ -2305,7 +2400,7 @@ function plotScaleResults(validChoices, target, disqualifiedIds) {
 
 // Reveal player choice badges one at a time with a slot-machine scramble.
 // Non-winners flip first, in order; the winner flips last for suspense.
-function revealPlayerChoicesStaggered(winnerId) {
+function revealPlayerChoicesStaggered(winnerId, target) {
   const alive = gameConfig.players.filter(p => p.isAlive);
   const nonWinners = alive.filter(p => p.id !== winnerId);
   const winner = alive.find(p => p.id === winnerId);
@@ -2313,13 +2408,13 @@ function revealPlayerChoicesStaggered(winnerId) {
 
   order.forEach((p, index) => {
     setTimeout(() => {
-      scrambleRevealBadge(p, winnerId);
+      scrambleRevealBadge(p, winnerId, target);
       playTickSound();
     }, index * 220);
   });
 }
 
-function scrambleRevealBadge(p, winnerId) {
+function scrambleRevealBadge(p, winnerId, target) {
   const badge = document.getElementById(`node-val-${p.id}`);
   if (!badge || p.lastChoice === null || p.lastChoice === undefined) return;
 
@@ -2336,6 +2431,12 @@ function scrambleRevealBadge(p, winnerId) {
       clearInterval(scrambleInterval);
       badge.textContent = finalText;
       badge.className = finalClass;
+
+      if (p.nearMiss && target !== undefined) {
+        const diffVal = p.lastChoice - target;
+        const diffText = (diffVal >= 0 ? '+' : '') + diffVal.toFixed(1);
+        badge.innerHTML = `${finalText} <span class="near-miss-badge">Almost! (${diffText})</span>`;
+      }
     } else {
       badge.textContent = Math.floor(Math.random() * 101).toString();
       badge.className = 'node-value-badge locked';
@@ -2497,6 +2598,9 @@ function declareGameOver(survivors) {
   if (isOnlineHost()) {
     window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
   }
+
+  // Save profile stats and trigger the rematch panel timer
+  handleGameOverStats(winner);
 }
 
 // Render dynamic round history logs in sidebar
@@ -2560,6 +2664,334 @@ function renderLogs() {
 
     historyLogs.appendChild(logItem);
   });
+}
+
+let rematchTimerId = null;
+
+function getProfile(name) {
+  try {
+    const raw = localStorage.getItem('quantum_core_profiles');
+    if (raw) {
+      const profiles = JSON.parse(raw);
+      if (profiles[name]) return profiles[name];
+    }
+  } catch (e) {}
+  return {
+    gamesPlayed: 0,
+    wins: 0,
+    losses: 0,
+    currentStreak: 0,
+    maxStreak: 0,
+    nearMisses: 0,
+    selectedTheme: 'green'
+  };
+}
+
+function updateProfileStats(name, stats) {
+  if (!name) return;
+  try {
+    let profiles = {};
+    const raw = localStorage.getItem('quantum_core_profiles');
+    if (raw) {
+      profiles = JSON.parse(raw);
+    }
+    
+    if (!profiles[name]) {
+      profiles[name] = {
+        gamesPlayed: 0,
+        wins: 0,
+        losses: 0,
+        currentStreak: 0,
+        maxStreak: 0,
+        nearMisses: 0,
+        selectedTheme: 'green'
+      };
+    }
+    
+    Object.assign(profiles[name], stats);
+    localStorage.setItem('quantum_core_profiles', JSON.stringify(profiles));
+  } catch (e) {
+    console.error("Failed to update profile", e);
+  }
+}
+
+function getProfileTheme(name) {
+  return getProfile(name).selectedTheme || 'green';
+}
+
+function getUnlockedThemes(profile) {
+  const wins = profile.wins || 0;
+  const maxStreak = profile.maxStreak || 0;
+  const list = [{ value: 'green', name: 'Green Core' }];
+  
+  if (wins >= 1) list.push({ value: 'cyan', name: 'Cyan Plasma' });
+  if (wins >= 3) list.push({ value: 'purple', name: 'Purple Void' });
+  if (wins >= 5) list.push({ value: 'orange', name: 'Orange Fire' });
+  if (wins >= 7) list.push({ value: 'red', name: 'Red Fusion' });
+  if (wins >= 10 || maxStreak >= 5) list.push({ value: 'gold', name: 'Gold Overlord' });
+  
+  return list;
+}
+
+function updateNodeRowProfileDetails(index) {
+  const nameInput = document.getElementById(`node-name-${index}`);
+  const typeSelect = document.getElementById(`node-type-${index}`);
+  const statsSpan = document.getElementById(`node-stats-${index}`);
+  const themeSelect = document.getElementById(`node-theme-${index}`);
+  
+  if (!nameInput || !typeSelect || !statsSpan || !themeSelect) return;
+  
+  const isHuman = typeSelect.value === 'human';
+  if (!isHuman) {
+    statsSpan.style.display = 'none';
+    themeSelect.style.display = 'none';
+    return;
+  }
+  
+  themeSelect.style.display = 'block';
+  const name = nameInput.value.trim();
+  if (!name) {
+    statsSpan.style.display = 'none';
+    themeSelect.innerHTML = `<option value="green">Green Core</option>`;
+    return;
+  }
+  
+  const prof = getProfile(name);
+  statsSpan.style.display = 'inline-block';
+  statsSpan.textContent = `Wins: ${prof.wins || 0} | Streak: ${prof.currentStreak || 0} | Misses: ${prof.nearMisses || 0}`;
+  
+  const unlocked = getUnlockedThemes(prof);
+  themeSelect.innerHTML = unlocked
+    .map(t => `<option value="${t.value}" ${prof.selectedTheme === t.value ? 'selected' : ''}>${t.name}</option>`)
+    .join('');
+}
+
+function renderArchivesList() {
+  const listContainer = document.getElementById('archives-list');
+  if (!listContainer) return;
+  
+  listContainer.innerHTML = '';
+  
+  let profiles = {};
+  try {
+    const raw = localStorage.getItem('quantum_core_profiles');
+    if (raw) {
+      profiles = JSON.parse(raw);
+    }
+  } catch (e) {}
+  
+  const profileNames = Object.keys(profiles);
+  if (profileNames.length === 0) {
+    listContainer.innerHTML = `<div style="text-align: center; color: var(--text-secondary); font-style: italic; font-size: 0.85rem; padding: 1rem 0;">No active logs in local mainframe database.</div>`;
+    return;
+  }
+  
+  profileNames.sort((a, b) => {
+    const winDiff = (profiles[b].wins || 0) - (profiles[a].wins || 0);
+    if (winDiff !== 0) return winDiff;
+    return (profiles[b].maxStreak || 0) - (profiles[a].maxStreak || 0);
+  });
+  
+  profileNames.forEach(name => {
+    const p = profiles[name];
+    const row = document.createElement('div');
+    row.className = 'archive-row';
+    row.innerHTML = `
+      <div class="archive-row-header">
+        <span class="archive-name">${name}</span>
+        <span class="archive-theme-badge theme-${p.selectedTheme || 'green'}">${(p.selectedTheme || 'green').toUpperCase()} CORE</span>
+      </div>
+      <div class="archive-stats">
+        <span>Wins: <strong>${p.wins || 0}</strong></span>
+        <span>Played: <strong>${p.gamesPlayed || 0}</strong></span>
+        <span>Streak: <strong>${p.currentStreak || 0} (Max: ${p.maxStreak || 0})</strong></span>
+        <span>Near Misses: <strong>${p.nearMisses || 0}</strong></span>
+      </div>
+    `;
+    listContainer.appendChild(row);
+  });
+}
+
+function updateThreatMeterUI() {
+  const container = document.getElementById('threat-meter-container');
+  const valueLabel = document.getElementById('threat-meter-value');
+  const bar = document.getElementById('threat-meter-bar');
+  
+  if (!container || !valueLabel || !bar) return;
+  
+  const analysis = analyzeMetaPressure();
+  const percentage = Math.round(analysis.score * 100);
+  
+  bar.style.width = `${percentage}%`;
+  
+  let state = 'stable';
+  let label = 'STABLE';
+  
+  if (percentage > 65) {
+    state = 'critical';
+    label = 'CRITICAL (INJECTION IMMINENT)';
+  } else if (percentage >= 42) {
+    state = 'collapsing';
+    label = 'COLLAPSING';
+  } else if (percentage > 20) {
+    state = 'elevated';
+    label = 'ELEVATED';
+  }
+  
+  valueLabel.className = `threat-meter-value ${state}`;
+  valueLabel.textContent = `${percentage}% (${label})`;
+  
+  bar.className = `threat-meter-bar ${state}`;
+  
+  if (state === 'critical' || state === 'collapsing') {
+    container.style.borderColor = state === 'critical' ? 'var(--accent-red)' : 'var(--accent-orange)';
+    container.style.boxShadow = `0 0 10px ${state === 'critical' ? 'rgba(255, 7, 58, 0.2)' : 'rgba(255, 140, 66, 0.2)'}`;
+  } else {
+    container.style.borderColor = 'rgba(0, 229, 255, 0.15)';
+    container.style.boxShadow = 'none';
+  }
+}
+
+function handleGameOverStats(winner) {
+  const isClient = isOnlineClient();
+  const myName = window.Network.getDisplayName();
+  
+  gameConfig.players.forEach(p => {
+    if (p.type === 'human') {
+      if (isClient && p.name !== myName) return;
+      
+      const currentProfile = getProfile(p.name);
+      const statsUpdate = {};
+      
+      if (winner && p.id === winner.id) {
+        statsUpdate.wins = (currentProfile.wins || 0) + 1;
+        statsUpdate.currentStreak = (currentProfile.currentStreak || 0) + 1;
+        statsUpdate.maxStreak = Math.max(currentProfile.maxStreak || 0, statsUpdate.currentStreak);
+      } else {
+        statsUpdate.losses = (currentProfile.losses || 0) + 1;
+        statsUpdate.currentStreak = 0;
+      }
+      
+      updateProfileStats(p.name, statsUpdate);
+    }
+  });
+  
+  renderArchivesList();
+  setupVictoryRematchUI(winner);
+}
+
+function setupVictoryRematchUI(winner) {
+  const panel = document.getElementById('victory-rematch-panel');
+  const streakBadge = document.getElementById('victory-streak-badge');
+  const timerVal = document.getElementById('rematch-timer-val');
+  const btnNow = document.getElementById('btn-rematch-now');
+  const btnCancel = document.getElementById('btn-rematch-cancel');
+  
+  if (!panel) return;
+  panel.style.display = 'flex';
+  
+  if (rematchTimerId) {
+    clearInterval(rematchTimerId);
+    rematchTimerId = null;
+  }
+  
+  if (winner) {
+    const prof = getProfile(winner.name);
+    const streak = prof ? prof.currentStreak : 1;
+    streakBadge.style.display = 'block';
+    streakBadge.textContent = `🔥 ${winner.name}: ${streak} WIN STREAK`;
+  } else {
+    streakBadge.style.display = 'none';
+  }
+  
+  let timeLeft = 10;
+  timerVal.textContent = timeLeft;
+  
+  const timerTextEl = document.querySelector('.rematch-timer-text');
+  if (timerTextEl) {
+    if (isOnlineClient()) {
+      btnNow.style.display = 'none';
+      btnCancel.style.display = 'none';
+      timerTextEl.innerHTML = `Host rematch countdown: <span id="rematch-timer-val" class="rematch-timer-val">${timeLeft}</span>s`;
+    } else {
+      btnNow.style.display = 'block';
+      btnCancel.style.display = 'block';
+      timerTextEl.innerHTML = `Auto-Rematch starting in <span id="rematch-timer-val" class="rematch-timer-val">${timeLeft}</span>s...`;
+    }
+  }
+  
+  const tickTimer = () => {
+    timeLeft--;
+    const tVal = document.getElementById('rematch-timer-val');
+    if (tVal) tVal.textContent = timeLeft;
+    
+    if (timeLeft <= 0) {
+      clearInterval(rematchTimerId);
+      rematchTimerId = null;
+      if (!isOnlineClient()) {
+        triggerRematch();
+      }
+    }
+  };
+  
+  rematchTimerId = setInterval(tickTimer, 1000);
+}
+
+function triggerRematch() {
+  if (rematchTimerId) {
+    clearInterval(rematchTimerId);
+    rematchTimerId = null;
+  }
+  
+  playSelectSound();
+  
+  gameConfig.players.forEach(p => {
+    p.stability = 0;
+    p.isAlive = true;
+    p.lastChoice = null;
+    p.isDisqualified = false;
+    p.isWinner = false;
+  });
+  
+  gameState.currentRound = 1;
+  gameState.history = [];
+  gameState.ruleNoticeQueue = [];
+  finalRoundStingerPlayed = false;
+  
+  gameConfig.rules = {
+    rule1: gameConfig.rulesAtStart.rule1,
+    rule2: gameConfig.rulesAtStart.rule2,
+    rule3: gameConfig.rulesAtStart.rule3
+  };
+  gameConfig.dynamicRules = {};
+  gameState.directorLastInjectRound = 0;
+  gameState.lastDirectorReason = '';
+  
+  renderActiveRulesTags();
+  renderArenaNodeCards();
+  resetScalePlot();
+  renderLogs();
+  updateThreatMeterUI();
+  
+  roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
+  arenaInstructions.textContent = "Rematch initiated. Press 'Begin Inputs' to gather values.";
+  btnArenaAction.textContent = "Begin Inputs";
+  btnArenaAction.style.display = 'block';
+  
+  lcdAverage.textContent = '--.--';
+  lcdTarget.textContent = '--.--';
+  
+  gameState.phase = 'arena';
+  lastSyncedPhase = null;
+  switchScreen('arena');
+  btnArenaAction.style.display = 'block';
+  btnAbortGame.style.display = 'block';
+  
+  if (isOnlineHost()) {
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
+  
+  startGameMusic();
 }
 
 // Launch application on DOM Load
