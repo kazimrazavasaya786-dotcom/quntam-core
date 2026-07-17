@@ -1219,6 +1219,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 4px;
 }
 
+.rule-tag-adaptive {
+  background: rgba(255, 140, 66, 0.1);
+  border-color: rgba(255, 140, 66, 0.35);
+  color: var(--accent-orange);
+}
+
 /* Settings Toggle button in top corner */
 .audio-toggle-btn {
   position: absolute;

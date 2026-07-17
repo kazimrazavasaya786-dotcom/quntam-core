@@ -18,7 +18,9 @@ let gameConfig = {
     rule1: false,
     rule2: false,
     rule3: false
-  }
+  },
+  /** Mid-game rules invented/activated by the Adaptive Protocol Engine */
+  dynamicRules: {}
 };
 
 const RULE_DEFINITIONS = {
@@ -26,19 +28,101 @@ const RULE_DEFINITIONS = {
     name: 'Disqualification Protocol',
     shortTag: 'Disqual. Override',
     desc: 'If multiple nodes select the exact same value, they are immediately disqualified and receive a stability penalty.',
-    trigger: 'Active when 4 or fewer nodes remain.'
+    trigger: 'Active when 4 or fewer nodes remain.',
+    source: 'classic'
   },
   2: {
     name: 'Precision Target Spike',
     shortTag: 'Precision Spike',
     desc: 'If a node hits the target value precisely, all other nodes suffer double stability depletion (-2 points).',
-    trigger: 'Active when 3 or fewer nodes remain.'
+    trigger: 'Active when 3 or fewer nodes remain.',
+    source: 'classic'
   },
   3: {
     name: 'Quantum Zero-One Override',
     shortTag: 'Zero-One Override',
     desc: 'In 1v1 shutdown mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins.',
-    trigger: 'Active when exactly 2 nodes remain.'
+    trigger: 'Active when exactly 2 nodes remain.',
+    source: 'classic'
+  }
+};
+
+/**
+ * Pool of inventable protocols the Adaptive Protocol Engine can create mid-game
+ * when players settle into a predictable meta (e.g. everyone guessing 1–15).
+ */
+const ADAPTIVE_RULE_POOL = {
+  floor_ban: {
+    id: 'floor_ban',
+    name: 'Sub-Floor Quarantine',
+    shortTag: 'Floor Ban',
+    desc: 'Values at or below 10 are invalid and immediately disqualified. Breaks the ultra-low guessing meta.',
+    trigger: 'Adaptive Engine — active while this protocol remains online.',
+    tags: ['low_meta', 'cluster'],
+    params: { maxBanned: 10 }
+  },
+  range_lift: {
+    id: 'range_lift',
+    name: 'Range Lift Directive',
+    shortTag: 'Range Lift',
+    desc: 'Valid inputs must be 25 or higher. Anything below is disqualified.',
+    trigger: 'Adaptive Engine — forces the field out of the bottom band.',
+    tags: ['low_meta'],
+    params: { minAllowed: 25 }
+  },
+  low_majority_tax: {
+    id: 'low_majority_tax',
+    name: 'Low-Band Cascade Tax',
+    shortTag: 'Low Tax',
+    desc: 'If a majority of living nodes pick 20 or below, every one of those nodes takes an extra −1 stability this round.',
+    trigger: 'Adaptive Engine — punishes coordinated low-band collapse.',
+    tags: ['low_meta'],
+    params: { threshold: 20 }
+  },
+  anchor_ban: {
+    id: 'anchor_ban',
+    name: 'Anchor Nullification',
+    shortTag: 'Anchor Ban',
+    desc: 'Repeating last round’s winning value is disqualified. Anchoring on a “safe” number no longer works.',
+    trigger: 'Adaptive Engine — active while this protocol remains online.',
+    tags: ['repeat', 'dominance'],
+    params: {}
+  },
+  band_collapse: {
+    id: 'band_collapse',
+    name: 'Proximity Collapse',
+    shortTag: 'Proximity DQ',
+    desc: 'If two or more nodes land within 3 points of each other, those nodes are all disqualified.',
+    trigger: 'Adaptive Engine — shatters tight cluster metas.',
+    tags: ['cluster'],
+    params: { proximity: 3 }
+  },
+  parity_lock: {
+    id: 'parity_lock',
+    name: 'Parity Lock',
+    shortTag: 'Parity Lock',
+    desc: 'Only even values are valid. Odd values are disqualified.',
+    trigger: 'Adaptive Engine — scrambles decimal habit and low-integer spam.',
+    tags: ['cluster', 'low_meta'],
+    params: { requireEven: true }
+  },
+  second_closest: {
+    id: 'second_closest',
+    name: 'Echo Inversion',
+    shortTag: '2nd Closest',
+    desc: 'The node closest to the target is ignored. The second-closest node wins the round instead.',
+    trigger: 'Adaptive Engine — overturns “always aim exact” certainty.',
+    tags: ['dominance', 'repeat'],
+    params: {}
+  },
+  ceiling_cap: {
+    id: 'ceiling_cap',
+    name: 'Ceiling Cap',
+    shortTag: 'Ceiling Cap',
+    desc: 'Values above 80 are disqualified. Over-correcting into the high band is punished.',
+    trigger: 'Adaptive Engine — active while this protocol remains online.',
+    tags: ['overcorrect'],
+    params: { maxAllowed: 80 }
   }
 };
 
@@ -48,7 +132,9 @@ let gameState = {
   activeHumanIndex: -1, // DEPRECATED in multiplayer
   history: [],
   winnerId: null,
-  ruleNoticeQueue: []
+  ruleNoticeQueue: [],
+  directorLastInjectRound: 0,
+  lastDirectorReason: ''
 };
 
 let peerToPlayerMap = {}; // mapping of peerId -> playerId
@@ -959,6 +1045,9 @@ function startGame() {
     rule2: gameConfig.rules.rule2,
     rule3: gameConfig.rules.rule3
   };
+  gameConfig.dynamicRules = {};
+  gameState.directorLastInjectRound = 0;
+  gameState.lastDirectorReason = '';
   
   // Render Arena UI baseline
   renderActiveRulesTags();
@@ -1093,14 +1182,224 @@ function addEliminationRules(eliminationCount) {
   return added;
 }
 
-function showRuleNotice(ruleNum, options = {}) {
-  const def = RULE_DEFINITIONS[ruleNum];
+function getRuleDefinition(ruleId) {
+  if (RULE_DEFINITIONS[ruleId]) return { ...RULE_DEFINITIONS[ruleId], id: ruleId };
+  if (gameConfig.dynamicRules && gameConfig.dynamicRules[ruleId]) {
+    return gameConfig.dynamicRules[ruleId];
+  }
+  if (ADAPTIVE_RULE_POOL[ruleId]) return { ...ADAPTIVE_RULE_POOL[ruleId] };
+  return null;
+}
+
+function isDynamicRuleActive(ruleId) {
+  return !!(gameConfig.dynamicRules && gameConfig.dynamicRules[ruleId]);
+}
+
+function activateDynamicRule(ruleId, reason) {
+  const template = ADAPTIVE_RULE_POOL[ruleId];
+  if (!template || isDynamicRuleActive(ruleId)) return null;
+  gameConfig.dynamicRules[ruleId] = {
+    ...template,
+    inventedAtRound: gameState.currentRound,
+    reason: reason || ''
+  };
+  return ruleId;
+}
+
+/** Score how "solved"/predictable the current meta feels. */
+function analyzeMetaPressure() {
+  const history = gameState.history || [];
+  if (history.length === 0) {
+    return { score: 0, reasons: [], suggested: [] };
+  }
+
+  const windowSize = Math.min(3, history.length);
+  const recent = history.slice(-windowSize);
+  let score = 0;
+  const reasons = [];
+  const suggested = [];
+
+  const allChoices = [];
+  recent.forEach(r => {
+    Object.values(r.choices || {}).forEach(c => {
+      if (c !== null && c !== undefined) allChoices.push(Number(c));
+    });
+  });
+
+  if (allChoices.length === 0) {
+    return { score: 0, reasons, suggested };
+  }
+
+  const lowRatio = allChoices.filter(c => c <= 15).length / allChoices.length;
+  const veryLowRatio = allChoices.filter(c => c <= 8).length / allChoices.length;
+  const avgTarget = recent.reduce((s, r) => s + (r.target || 0), 0) / recent.length;
+  const mean = allChoices.reduce((a, b) => a + b, 0) / allChoices.length;
+  const variance = allChoices.reduce((s, c) => s + (c - mean) ** 2, 0) / allChoices.length;
+  const std = Math.sqrt(variance);
+
+  // Classic home-play failure mode: everyone piles into 1–15 from early rounds
+  if (lowRatio >= 0.5) {
+    score += 0.4;
+    reasons.push('Majority of nodes collapsed into the low band (≤15).');
+    suggested.push('floor_ban', 'range_lift', 'low_majority_tax', 'parity_lock');
+  }
+  if (veryLowRatio >= 0.4) {
+    score += 0.25;
+    reasons.push('Heavy spam of ultra-low values (≤8) — classic solved meta.');
+    suggested.push('floor_ban', 'range_lift');
+  }
+  if (avgTarget < 22) {
+    score += 0.28;
+    reasons.push(`Target band collapsed (avg target ${avgTarget.toFixed(1)}).`);
+    suggested.push('floor_ban', 'range_lift', 'low_majority_tax');
+  }
+  if (std < 9 && allChoices.length >= 3) {
+    score += 0.32;
+    reasons.push('Choices are tightly clustered — the field looks solved.');
+    suggested.push('band_collapse', 'parity_lock', 'second_closest');
+  }
+
+  const winners = recent.map(r => r.winnerId).filter(id => id !== null && id !== undefined);
+  if (winners.length >= 2 && winners.every(w => w === winners[0])) {
+    score += 0.22;
+    reasons.push('Same node is dominating consecutive rounds.');
+    suggested.push('second_closest', 'anchor_ban');
+  }
+
+  // Even round 1 can feel finished if everyone already plays the low meta
+  if (history.length === 1 && (lowRatio >= 0.55 || avgTarget < 25)) {
+    score += 0.18;
+    reasons.push('Round-1 low-number meta detected — injecting pressure early.');
+    suggested.push('floor_ban', 'low_majority_tax', 'range_lift');
+  }
+
+  // Over-correction into highs after a floor-style shock (future rounds)
+  const highRatio = allChoices.filter(c => c >= 75).length / allChoices.length;
+  if (highRatio >= 0.45 && isDynamicRuleActive('floor_ban')) {
+    score += 0.2;
+    reasons.push('Field over-corrected into the high band.');
+    suggested.push('ceiling_cap', 'second_closest');
+  }
+
+  return {
+    score: Math.min(1, score),
+    reasons,
+    suggested: [...new Set(suggested)]
+  };
+}
+
+function pickInventableRule(analysis) {
+  const unused = Object.keys(ADAPTIVE_RULE_POOL).filter(id => !isDynamicRuleActive(id));
+  if (unused.length === 0) return null;
+
+  const preferred = (analysis.suggested || []).filter(id => unused.includes(id));
+  const pool = preferred.length > 0 ? preferred : unused;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/**
+ * Adaptive Protocol Engine — watches the board and creates/activates rules
+ * so the game never settles into a finished-feeling meta.
+ */
+function decideAdaptiveInjections(options = {}) {
+  const eliminationCount = options.eliminationCount || 0;
+  const alreadyQueued = options.alreadyQueued || [];
+  const analysis = analyzeMetaPressure();
+  const injected = [];
+  const roundsSince =
+    gameState.currentRound - (gameState.directorLastInjectRound || 0);
+
+  const metaHot = analysis.score >= 0.42;
+  const metaCritical = analysis.score >= 0.65;
+  const afterElim = eliminationCount > 0;
+  const canInject =
+    gameState.history.length >= 1 &&
+    (roundsSince >= 1 || afterElim) &&
+    (metaHot || afterElim || metaCritical);
+
+  if (!canInject) {
+    return { injected, analysis };
+  }
+
+  // Prefer inventing a new protocol when the meta is hot
+  if (metaHot || metaCritical || (afterElim && analysis.score >= 0.28)) {
+    const inventId = pickInventableRule(analysis);
+    if (inventId && !alreadyQueued.includes(inventId)) {
+      const reason = analysis.reasons[0] || 'Predictable play pattern detected.';
+      if (activateDynamicRule(inventId, reason)) {
+        injected.push(inventId);
+        gameState.directorLastInjectRound = gameState.currentRound;
+        gameState.lastDirectorReason = reason;
+      }
+    }
+  }
+
+  // Also bring in a classic unmarked rule when pressure is high (not only on elim)
+  if ((metaCritical || (afterElim && metaHot)) && injected.length < 2) {
+    const classic = getNextUnmarkedEliminationRule();
+    if (classic && !alreadyQueued.includes(classic) && !injected.includes(classic)) {
+      gameConfig.rules[`rule${classic}`] = true;
+      injected.push(classic);
+      gameState.directorLastInjectRound = gameState.currentRound;
+      if (!gameState.lastDirectorReason) {
+        gameState.lastDirectorReason = analysis.reasons[0] || 'Escalating classic protocol.';
+      }
+    }
+  }
+
+  // If elimination added nothing classic and invent failed, still try classic once
+  if (afterElim && injected.length === 0 && alreadyQueued.length === 0) {
+    const classic = getNextUnmarkedEliminationRule();
+    if (classic) {
+      gameConfig.rules[`rule${classic}`] = true;
+      injected.push(classic);
+      gameState.directorLastInjectRound = gameState.currentRound;
+    }
+  }
+
+  if (injected.length > 0) {
+    renderActiveRulesTags();
+  }
+
+  return { injected, analysis };
+}
+
+function queueRuleNotices(ruleIds, analysis) {
+  if (!ruleIds || ruleIds.length === 0) return false;
+  gameState.ruleNoticeQueue = [...ruleIds];
+  gameState.phase = 'rule_notice';
+  gameState.lastDirectorReason = (analysis && analysis.reasons && analysis.reasons[0]) || gameState.lastDirectorReason || '';
+  btnArenaAction.style.display = 'none';
+  showRuleNotice(ruleIds[0], { announce: true });
+  if (isOnlineHost()) {
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
+  return true;
+}
+
+function showRuleNotice(ruleId, options = {}) {
+  const def = getRuleDefinition(ruleId);
   if (!def || !ruleNoticeModal) return;
 
+  const badge = document.getElementById('rule-notice-badge');
+  const isAdaptive = typeof ruleId === 'string' || (def.source === 'adaptive') || !!ADAPTIVE_RULE_POOL[ruleId];
+
+  if (badge) {
+    badge.textContent = isAdaptive
+      ? 'ADAPTIVE PROTOCOL ENGINE'
+      : 'ELIMINATION PROTOCOL ADDED';
+  }
   if (ruleNoticeTitle) ruleNoticeTitle.textContent = def.name;
   if (ruleNoticeDesc) ruleNoticeDesc.textContent = def.desc;
   if (ruleNoticeContext) {
-    ruleNoticeContext.textContent = `A node was eliminated. This protocol was not selected at start and is now active. ${def.trigger}`;
+    if (isAdaptive) {
+      const why = (gameConfig.dynamicRules[ruleId] && gameConfig.dynamicRules[ruleId].reason)
+        || gameState.lastDirectorReason
+        || 'The Engine detected a solved meta.';
+      ruleNoticeContext.textContent = `${why} ${def.trigger || ''}`.trim();
+    } else {
+      ruleNoticeContext.textContent = `A node was eliminated — or the Adaptive Engine escalated. This protocol was not selected at start and is now active. ${def.trigger || ''}`;
+    }
   }
 
   ruleNoticeModal.style.display = 'flex';
@@ -1152,9 +1451,123 @@ function renderActiveRulesTags() {
   if (gameConfig.rules.rule3) {
     activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[3].shortTag}</span>`;
   }
+  Object.keys(gameConfig.dynamicRules || {}).forEach(id => {
+    const def = gameConfig.dynamicRules[id];
+    if (def && def.shortTag) {
+      activeRulesTags.innerHTML += `<span class="rule-tag rule-tag-adaptive">${def.shortTag}</span>`;
+    }
+  });
   if (activeRulesTags.innerHTML === '') {
     activeRulesTags.innerHTML = `<span class="rule-tag" style="background: rgba(255,255,255,0.03); color: var(--text-secondary); border-color: rgba(255,255,255,0.05)">No Active Overrides</span>`;
   }
+}
+
+/** Apply inventable DQ filters after classic Rule 1. Mutates players + lists. */
+function applyAdaptiveDisqualifiers(activePlayers, validChoices, disqualifiedIds) {
+  const dyn = gameConfig.dynamicRules || {};
+  if (Object.keys(dyn).length === 0) {
+    return { validChoices, disqualifiedIds };
+  }
+
+  const prevWinnerChoice = (() => {
+    if (!gameState.history.length) return null;
+    const prev = gameState.history[gameState.history.length - 1];
+    if (!prev || prev.winnerId == null) return null;
+    const winnerPlayer = gameConfig.players.find(p => p.id === prev.winnerId);
+    if (!winnerPlayer) return null;
+    const name = winnerPlayer.name;
+    return prev.choices[name];
+  })();
+
+  const stillValid = [];
+  const dq = new Set(disqualifiedIds);
+
+  validChoices.forEach(item => {
+    const p = gameConfig.players.find(pl => pl.id === item.id);
+    if (!p) return;
+    let banned = false;
+    let choice = item.choice;
+
+    if (dyn.floor_ban && choice <= (dyn.floor_ban.params.maxBanned || 10)) banned = true;
+    if (dyn.range_lift && choice < (dyn.range_lift.params.minAllowed || 25)) banned = true;
+    if (dyn.ceiling_cap && choice > (dyn.ceiling_cap.params.maxAllowed || 80)) banned = true;
+    if (dyn.parity_lock) {
+      const needEven = dyn.parity_lock.params.requireEven !== false;
+      if (needEven && choice % 2 !== 0) banned = true;
+      if (!needEven && choice % 2 === 0) banned = true;
+    }
+    if (dyn.anchor_ban && prevWinnerChoice !== null && prevWinnerChoice !== undefined && choice === prevWinnerChoice) {
+      banned = true;
+    }
+
+    if (banned) {
+      p.isDisqualified = true;
+      dq.add(p.id);
+    } else {
+      stillValid.push(item);
+    }
+  });
+
+  // Proximity collapse among remaining valid nodes
+  if (dyn.band_collapse && stillValid.length >= 2) {
+    const prox = dyn.band_collapse.params.proximity || 3;
+    const collapseIds = new Set();
+    for (let i = 0; i < stillValid.length; i++) {
+      for (let j = i + 1; j < stillValid.length; j++) {
+        if (Math.abs(stillValid[i].choice - stillValid[j].choice) <= prox) {
+          collapseIds.add(stillValid[i].id);
+          collapseIds.add(stillValid[j].id);
+        }
+      }
+    }
+    if (collapseIds.size > 0) {
+      collapseIds.forEach(id => {
+        const p = gameConfig.players.find(pl => pl.id === id);
+        if (p) p.isDisqualified = true;
+        dq.add(id);
+      });
+      return {
+        validChoices: stillValid.filter(v => !collapseIds.has(v.id)),
+        disqualifiedIds: [...dq]
+      };
+    }
+  }
+
+  return { validChoices: stillValid, disqualifiedIds: [...dq] };
+}
+
+function pickWinnerWithAdaptiveRules(validChoices, target, rule3Triggered) {
+  if (rule3Triggered) return { winnerId: null, echoInversion: false };
+  if (!validChoices.length) return { winnerId: null, echoInversion: false };
+
+  const ranked = [...validChoices]
+    .map(item => ({ ...item, diff: Math.abs(item.choice - target) }))
+    .sort((a, b) => a.diff - b.diff);
+
+  if (isDynamicRuleActive('second_closest') && ranked.length >= 2) {
+    return { winnerId: ranked[1].id, echoInversion: true };
+  }
+
+  const minDiff = ranked[0].diff;
+  const winners = ranked.filter(r => r.diff === minDiff);
+  return { winnerId: winners[0].id, echoInversion: false };
+}
+
+function applyLowMajorityTax(activePlayers, stabilityUpdates) {
+  if (!isDynamicRuleActive('low_majority_tax')) return false;
+  const threshold = (gameConfig.dynamicRules.low_majority_tax.params.threshold || 20);
+  const lowPickers = activePlayers.filter(p => p.lastChoice <= threshold);
+  if (lowPickers.length === 0) return false;
+  if (lowPickers.length <= activePlayers.length / 2) return false;
+
+  let hit = false;
+  lowPickers.forEach(p => {
+    p.stability -= 1;
+    if (p.stability < -10) p.stability = -10;
+    stabilityUpdates[p.name] = (stabilityUpdates[p.name] || 0) - 1;
+    hit = true;
+  });
+  return hit;
 }
 
 // Render static layout of player cards inside Arena
@@ -1564,11 +1977,16 @@ function evaluateRound() {
     });
   }
 
+  // Adaptive Engine inventable DQ filters (floor ban, range lift, proximity, etc.)
+  ({ validChoices, disqualifiedIds } = applyAdaptiveDisqualifiers(activePlayers, validChoices, disqualifiedIds));
+
   // 2. Calculations
   let average = 0;
   let target = 0;
   let winnerId = null;
   let exactMatchHit = false;
+  let echoInversion = false;
+  let lowTaxHit = false;
 
   // Populate choices summary for log
   gameConfig.players.forEach(p => {
@@ -1600,33 +2018,17 @@ function evaluateRound() {
     }
   }
 
-  // Standard closest calculation if Rule 3 didn't override
-  if (winnerId === null && validChoices.length > 0) {
-    let minDiff = Infinity;
-    
-    validChoices.forEach(item => {
-      const diff = Math.abs(item.choice - target);
-      if (diff < minDiff) {
-        minDiff = diff;
-        winnerId = item.id;
-      } else if (diff === minDiff) {
-        // Tie breaker: multiple winners? In the series, if multiple players are equally close, 
-        // they all win. Let's support tie-winners by using an array, but we can assign winnerId to one 
-        // and adjust scoring rules. Let's make it so all closest players get 0 penalty.
-      }
-    });
-
-    // Find all players who are tied for closest
-    const winners = validChoices.filter(item => Math.abs(item.choice - target) === minDiff).map(item => item.id);
-    
-    // In our simplified state, we pick the first winner for the main UI but apply score adjustments to all
-    winnerId = winners[0];
+  // Standard / Echo Inversion winner pick
+  if (!rule3Triggered) {
+    const pick = pickWinnerWithAdaptiveRules(validChoices, target, rule3Triggered);
+    winnerId = pick.winnerId;
+    echoInversion = pick.echoInversion;
   }
 
   // Check if winner got the exact target value (Precision Spike Rule 2)
   // Triggers only when 3 or fewer active nodes remain
   const rule2Active = gameConfig.rules.rule2 && (numActive <= 3);
-  if (rule2Active && winnerId !== null) {
+  if (rule2Active && winnerId !== null && !echoInversion) {
     const winnerChoice = gameConfig.players.find(p => p.id === winnerId).lastChoice;
     // float precision match check
     if (Math.abs(winnerChoice - target) < 0.0001) {
@@ -1673,6 +2075,9 @@ function evaluateRound() {
     }
   });
 
+  lowTaxHit = applyLowMajorityTax(activePlayers, stabilityUpdates);
+  if (lowTaxHit) someoneSizzled = true;
+
   // Save Round History
   const roundRecord = {
     round: gameState.currentRound,
@@ -1683,7 +2088,9 @@ function evaluateRound() {
     disqualifiedIds: disqualifiedIds,
     stabilityUpdates: stabilityUpdates,
     exactMatchHit: exactMatchHit,
-    rule3Triggered: rule3Triggered
+    rule3Triggered: rule3Triggered,
+    echoInversion: echoInversion,
+    lowTaxHit: lowTaxHit
   };
   gameState.history.push(roundRecord);
 
@@ -1719,6 +2126,9 @@ function evaluateRound() {
   if (rule3Triggered) {
     const winnerName = gameConfig.players.find(p => p.id === winnerId).name;
     resultText += `Quantum Override triggered! ${winnerName} (100) overrides (0) and wins! `;
+  } else if (echoInversion && winnerId !== null) {
+    const winnerName = gameConfig.players.find(p => p.id === winnerId).name;
+    resultText += `Echo Inversion: second-closest wins — ${winnerName}. `;
   } else if (winnerId !== null) {
     const winnerName = gameConfig.players.find(p => p.id === winnerId).name;
     const winnerChoice = gameConfig.players.find(p => p.id === winnerId).lastChoice;
@@ -1726,10 +2136,14 @@ function evaluateRound() {
   }
 
   if (exactMatchHit) {
-    resultText += `Precision Spike Hit! Other nodes suffer double stability drain.`;
+    resultText += `Precision Spike Hit! Other nodes suffer double stability drain. `;
     screens.arena.classList.add('glitch-effect');
     vibrate([40, 30, 40, 30, 90]);
     setTimeout(() => screens.arena.classList.remove('glitch-effect'), 400);
+  }
+
+  if (lowTaxHit) {
+    resultText += `Low-Band Cascade Tax applied. `;
   }
 
   arenaInstructions.textContent = resultText;
@@ -1852,18 +2266,20 @@ function prepareNextRoundOrFinish() {
 
     arenaInstructions.textContent = "Critical alert: Core Stability exceeded limits! Triggered coolant overflow purge.";
 
-    const addedRules = addEliminationRules(meltdownCount);
-    if (addedRules.length > 0) {
-      gameState.ruleNoticeQueue = addedRules;
-      gameState.phase = 'rule_notice';
-      btnArenaAction.style.display = 'none';
-      showRuleNotice(addedRules[0], { announce: true });
-
-      if (isOnlineHost()) {
-        window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
-      }
-      return;
-    }
+    const elimAdded = addEliminationRules(meltdownCount);
+    const { injected, analysis } = decideAdaptiveInjections({
+      eliminationCount: meltdownCount,
+      alreadyQueued: elimAdded
+    });
+    const allAdded = [...elimAdded, ...injected];
+    if (queueRuleNotices(allAdded, analysis)) return;
+  } else {
+    // No meltdown — Engine can still invent if the meta feels finished
+    const { injected, analysis } = decideAdaptiveInjections({
+      eliminationCount: 0,
+      alreadyQueued: []
+    });
+    if (queueRuleNotices(injected, analysis)) return;
   }
 
   finishMeltdownAndAdvanceRound();

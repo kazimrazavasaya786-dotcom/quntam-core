@@ -246,6 +246,11 @@
             <li><strong style="color: var(--accent-orange);">Zero-One Override:</strong> In 1v1 mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins the round. (Active at 2 nodes).</li>
           </ul>
         </div>
+
+        <div>
+          <strong style="color: var(--text-primary);">Adaptive Protocol Engine:</strong>
+          An onboard director watches for solved metas (for example everyone locking into 1–15). When play becomes predictable, it activates unused classic protocols and <strong style="color: var(--accent-orange);">invents new mid-game rules</strong> — floor bans, proximity DQ, second-closest wins, and more — so the arena never feels finished.
+        </div>
       </div>
 
       <button id="btn-close-protocols" class="btn btn-center">Close Console</button>
@@ -260,6 +265,7 @@
       <p class="elimination-rules-intro">
         Tick any rule to activate it from <strong style="color: var(--accent-cyan);">Round 1</strong>.
         Leave rules unmarked and they will be added automatically when a node is eliminated.
+        An <strong style="color: var(--accent-orange);">Adaptive Protocol Engine</strong> also watches play and invents new rules if the meta becomes too predictable.
       </p>
 
       <div class="elimination-rules-list">
@@ -298,7 +304,7 @@
   <!-- ELIMINATION RULE NOTICE -->
   <div id="rule-notice-modal" class="turn-overlay rule-notice-modal" style="display: none; z-index: 210;">
     <div class="glass-panel rule-notice-panel">
-      <div class="rule-notice-badge">ELIMINATION PROTOCOL ADDED</div>
+      <div class="rule-notice-badge" id="rule-notice-badge">ELIMINATION PROTOCOL ADDED</div>
       <div class="turn-instruction rule-notice-title" id="rule-notice-title">Rule Name</div>
       <p class="rule-notice-desc" id="rule-notice-desc"></p>
       <p class="rule-notice-context" id="rule-notice-context"></p>
