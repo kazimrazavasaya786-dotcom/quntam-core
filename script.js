@@ -9,6 +9,11 @@ let gameConfig = {
     rule2: false, // Precision Target Spike (exact target match penalty for others)
     rule3: false  // 100 beats 0 in 1v1 shutdown
   },
+  rulesUserSelection: {
+    rule1: false,
+    rule2: false,
+    rule3: false
+  },
   rulesAtStart: {
     rule1: false,
     rule2: false,
@@ -653,7 +658,7 @@ function setupEventListeners() {
 
     check.addEventListener('change', () => {
       playSelectSound();
-      gameConfig.rules[`rule${ruleNum}`] = check.checked;
+      gameConfig.rulesUserSelection[`rule${ruleNum}`] = check.checked;
       syncRuleCardsUI();
     });
   });
@@ -699,6 +704,7 @@ function setupEventListeners() {
     gameState.phase = 'setup';
     gameState.ruleNoticeQueue = [];
     hideRuleNoticeModal();
+    syncRuleCardsUI();
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   });
@@ -942,6 +948,12 @@ function startGame() {
   gameState.ruleNoticeQueue = [];
   finalRoundStingerPlayed = false;
 
+  // Reset active rules from setup selections (clears auto-added rules from prior game)
+  gameConfig.rules = {
+    rule1: gameConfig.rulesUserSelection.rule1,
+    rule2: gameConfig.rulesUserSelection.rule2,
+    rule3: gameConfig.rulesUserSelection.rule3
+  };
   gameConfig.rulesAtStart = {
     rule1: gameConfig.rules.rule1,
     rule2: gameConfig.rules.rule2,
@@ -1026,6 +1038,7 @@ function abortGame() {
     gameState.phase = 'setup';
     gameState.ruleNoticeQueue = [];
     hideRuleNoticeModal();
+    syncRuleCardsUI();
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   }
@@ -1036,7 +1049,7 @@ function syncRuleCardsUI() {
   Object.keys(ruleCards).forEach(ruleNum => {
     const card = ruleCards[ruleNum];
     const check = ruleChecks[ruleNum];
-    const enabled = !!gameConfig.rules[`rule${ruleNum}`];
+    const enabled = !!gameConfig.rulesUserSelection[`rule${ruleNum}`];
     if (check) check.checked = enabled;
     if (card) {
       card.classList.toggle('enabled', enabled);
@@ -1047,7 +1060,7 @@ function syncRuleCardsUI() {
 
 function updateEliminationRulesSummary() {
   if (!eliminationRulesSummary) return;
-  const selected = [1, 2, 3].filter(n => gameConfig.rules[`rule${n}`]);
+  const selected = [1, 2, 3].filter(n => gameConfig.rulesUserSelection[`rule${n}`]);
   if (selected.length === 0) {
     eliminationRulesSummary.textContent = 'No rules selected — all added on elimination';
     return;
@@ -1076,7 +1089,6 @@ function addEliminationRules(eliminationCount) {
   }
   if (added.length > 0) {
     renderActiveRulesTags();
-    syncRuleCardsUI();
   }
   return added;
 }
