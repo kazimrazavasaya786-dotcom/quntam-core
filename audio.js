@@ -246,6 +246,66 @@ class QuantumAudio {
     }
   }
 
+  // Low heartbeat thump — triggered when a node is critically low
+  playHeartbeat() {
+    this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+
+    const now = this.ctx.currentTime;
+    [0, 0.18].forEach((offset, i) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(55, now + offset);
+      osc.frequency.exponentialRampToValueAtTime(30, now + offset + 0.12);
+      gain.gain.setValueAtTime(0.0, now + offset);
+      gain.gain.linearRampToValueAtTime(i === 0 ? 0.18 : 0.12, now + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.16);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.18);
+    });
+  }
+
+  // Stinger played once when a match drops to its final 2 nodes
+  playFinalRoundStinger() {
+    this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+
+    const now = this.ctx.currentTime;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const filter = this.ctx.createBiquadFilter();
+
+    osc1.type = 'sawtooth';
+    osc2.type = 'square';
+    osc1.frequency.setValueAtTime(65, now);
+    osc2.frequency.setValueAtTime(65.5, now);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1200, now);
+    filter.frequency.exponentialRampToValueAtTime(200, now + 1.0);
+
+    gain.gain.setValueAtTime(0.0, now);
+    gain.gain.linearRampToValueAtTime(0.3, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + 1.1);
+    osc2.stop(now + 1.1);
+  }
+
+
   // Helper to create white noise
   createNoiseBuffer() {
     if (!this.ctx) return null;
@@ -259,10 +319,9 @@ class QuantumAudio {
   }
 
   // ============================================================
-  // TENSION MUSIC ENGINE
-  // Procedural ambient soundtrack using layered synth drones,
-  // a rhythmic pulse sequencer, and filtered noise textures.
-  // intensity: 0.0 (calm) → 1.0 (critical meltdown territory)
+  // TENSION MUSIC — slow cinematic build (no harsh arpeggios)
+  // Layers: deep drone → air texture → soft pulse → high shimmer at peak
+  // intensity: 0.0 (calm) → 1.0 (critical)
   // ============================================================
 
   startTensionMusic() {
@@ -270,44 +329,40 @@ class QuantumAudio {
     if (!this.ctx) return;
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
-    // If already playing, don't double-start
     if (this._tensionPlaying && this._musicMaster) return;
 
-    // Cancel any pending teardown from a previous stop
     this._musicGen = (this._musicGen || 0) + 1;
     const gen = this._musicGen;
     this._clearMusicTimers();
 
     this._tensionPlaying = true;
-    this._tensionIntensity = 0.2;
+    this._tensionIntensity = 0.12;
+    this._musicStartTime = this.ctx.currentTime;
 
-    // Master bus → compressor (keeps it loud but not clipped/silent)
     this._musicMaster = this.ctx.createGain();
-    this._musicMaster.gain.setValueAtTime(0.001, this.ctx.currentTime);
-    this._musicMaster.gain.exponentialRampToValueAtTime(1.0, this.ctx.currentTime + 0.8);
+    this._musicMaster.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+    this._musicMaster.gain.exponentialRampToValueAtTime(1.0, this.ctx.currentTime + 2.5);
 
     this._musicComp = this.ctx.createDynamicsCompressor();
-    this._musicComp.threshold.setValueAtTime(-18, this.ctx.currentTime);
-    this._musicComp.knee.setValueAtTime(12, this.ctx.currentTime);
-    this._musicComp.ratio.setValueAtTime(4, this.ctx.currentTime);
-    this._musicComp.attack.setValueAtTime(0.01, this.ctx.currentTime);
-    this._musicComp.release.setValueAtTime(0.25, this.ctx.currentTime);
+    this._musicComp.threshold.setValueAtTime(-20, this.ctx.currentTime);
+    this._musicComp.knee.setValueAtTime(30, this.ctx.currentTime);
+    this._musicComp.ratio.setValueAtTime(2.5, this.ctx.currentTime);
+    this._musicComp.attack.setValueAtTime(0.03, this.ctx.currentTime);
+    this._musicComp.release.setValueAtTime(0.5, this.ctx.currentTime);
 
-    // Final output gain — strong & audible
     this._musicOut = this.ctx.createGain();
-    this._musicOut.gain.setValueAtTime(2.2, this.ctx.currentTime);
+    this._musicOut.gain.setValueAtTime(0.38, this.ctx.currentTime);
 
     this._musicMaster.connect(this._musicComp);
     this._musicComp.connect(this._musicOut);
     this._musicOut.connect(this.ctx.destination);
 
-    this._startDronePad();
-    this._startSubBass();
-    this._startNoiseTexture();
-    this._startPulseSequencer();
+    this._startDeepDrone();
+    this._startAirBed();
+    this._startSoftPulse();
+    this._startShimmer();
     this._updateTensionParams();
 
-    // Keep context alive if browser suspends it
     this._musicResumeWatch = setInterval(() => {
       if (this._musicGen !== gen || !this._tensionPlaying) return;
       if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
@@ -323,16 +378,15 @@ class QuantumAudio {
     if (this._musicMaster) {
       try {
         this._musicMaster.gain.cancelScheduledValues(now);
-        this._musicMaster.gain.setValueAtTime(Math.max(0.001, this._musicMaster.gain.value || 0.001), now);
-        this._musicMaster.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+        this._musicMaster.gain.setValueAtTime(Math.max(0.0001, this._musicMaster.gain.value || 0.0001), now);
+        this._musicMaster.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
       } catch (_) {}
     }
 
     setTimeout(() => {
-      // Only tear down if no newer start happened
       if (this._musicGen !== gen) return;
       this._stopMusicNodes();
-    }, 1400);
+    }, 2000);
   }
 
   setTensionIntensity(level) {
@@ -347,60 +401,58 @@ class QuantumAudio {
 
     if (this._droneGain) {
       this._droneGain.gain.cancelScheduledValues(now);
-      this._droneGain.gain.setTargetAtTime(0.18 + t * 0.22, now, 0.5);
+      this._droneGain.gain.setTargetAtTime(0.10 + t * 0.14, now, 1.2);
     }
-    if (this._droneOsc2) {
-      this._droneOsc2.detune.cancelScheduledValues(now);
-      this._droneOsc2.detune.setTargetAtTime(t * 25, now, 0.5);
-    }
-
-    // Volume amp (not the LFO-modulated node)
-    if (this._subAmp) {
-      this._subAmp.gain.cancelScheduledValues(now);
-      this._subAmp.gain.setTargetAtTime(0.35 + t * 0.40, now, 0.5);
-    }
-    if (this._subLfo) {
-      this._subLfo.frequency.cancelScheduledValues(now);
-      this._subLfo.frequency.setTargetAtTime(0.35 + t * 1.5, now, 0.5);
+    if (this._droneFilter) {
+      this._droneFilter.frequency.cancelScheduledValues(now);
+      this._droneFilter.frequency.setTargetAtTime(90 + t * 180, now, 1.2);
     }
 
-    if (this._noiseFilter) {
-      this._noiseFilter.frequency.cancelScheduledValues(now);
-      this._noiseFilter.frequency.setTargetAtTime(200 + t * 1200, now, 0.5);
+    if (this._airGain) {
+      this._airGain.gain.cancelScheduledValues(now);
+      this._airGain.gain.setTargetAtTime(0.03 + t * 0.09, now, 1.2);
     }
-    if (this._noiseGain) {
-      this._noiseGain.gain.cancelScheduledValues(now);
-      this._noiseGain.gain.setTargetAtTime(0.05 + t * 0.12, now, 0.5);
+    if (this._airFilter) {
+      this._airFilter.frequency.cancelScheduledValues(now);
+      this._airFilter.frequency.setTargetAtTime(280 + t * 900, now, 1.2);
     }
 
-    if (this._pulseGain) {
-      this._pulseGain.gain.cancelScheduledValues(now);
-      this._pulseGain.gain.setTargetAtTime(0.22 + t * 0.30, now, 0.5);
+    if (this._shimmerGain) {
+      this._shimmerGain.gain.cancelScheduledValues(now);
+      this._shimmerGain.gain.setTargetAtTime(Math.max(0, (t - 0.35) * 0.12), now, 1.5);
     }
 
     if (this._musicOut) {
       this._musicOut.gain.cancelScheduledValues(now);
-      this._musicOut.gain.setTargetAtTime(2.0 + t * 0.8, now, 0.8);
+      this._musicOut.gain.setTargetAtTime(0.34 + t * 0.16, now, 1.5);
+    }
+
+    // Retune pulse tempo when tension shifts
+    if (this._pulseInterval) {
+      const newInterval = Math.max(650, 1400 - t * 750);
+      if (!this._lastPulseTempo || Math.abs(this._lastPulseTempo - newInterval) > 40) {
+        this._schedulePulseLoop();
+      }
     }
   }
 
-  // Layer 1: Dark pad — two detuned sawtooth oscillators through lowpass
-  _startDronePad() {
+  // Layer 1: Very low sustained drone — barely there at start, grows slowly
+  _startDeepDrone() {
     const osc1 = this.ctx.createOscillator();
     const osc2 = this.ctx.createOscillator();
     const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
 
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(55, this.ctx.currentTime);
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(55.3, this.ctx.currentTime);
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(41.2, this.ctx.currentTime);  // E1
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(61.74, this.ctx.currentTime); // B1 (fifth)
 
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(280, this.ctx.currentTime);
-    filter.Q.setValueAtTime(1.5, this.ctx.currentTime);
+    filter.frequency.setValueAtTime(90, this.ctx.currentTime);
+    filter.Q.setValueAtTime(0.3, this.ctx.currentTime);
 
-    gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.10, this.ctx.currentTime);
 
     osc1.connect(filter);
     osc2.connect(filter);
@@ -414,65 +466,15 @@ class QuantumAudio {
     this._droneOsc2 = osc2;
     this._droneFilter = filter;
     this._droneGain = gain;
-
-    this._droneSweepInterval = setInterval(() => {
-      if (!this._tensionPlaying || !this.ctx) return;
-      const t = this._tensionIntensity;
-      const now = this.ctx.currentTime;
-      const baseFreq = 180 + t * 320;
-      const sweep = Math.sin(now * 0.15) * (80 + t * 150);
-      filter.frequency.setTargetAtTime(baseFreq + sweep, now, 0.3);
-    }, 200);
   }
 
-  // Layer 2: Sub bass with safe LFO pulse (LFO never rides the volume AudioParam)
-  _startSubBass() {
-    const osc = this.ctx.createOscillator();
-    const pulse = this.ctx.createGain(); // LFO modulates this between ~0.2–1.0
-    const amp = this.ctx.createGain();   // overall loudness control
-    const lfo = this.ctx.createOscillator();
-    const lfoDepth = this.ctx.createGain();
-    const lfoOffset = this.ctx.createConstantSource();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(36.7, this.ctx.currentTime);
-
-    // pulse = 0.55 + LFO*0.45 → stays positive so audio never goes silent
-    pulse.gain.setValueAtTime(0, this.ctx.currentTime);
-    lfoOffset.offset.setValueAtTime(0.55, this.ctx.currentTime);
-    lfo.type = 'sine';
-    lfo.frequency.setValueAtTime(0.5, this.ctx.currentTime);
-    lfoDepth.gain.setValueAtTime(0.45, this.ctx.currentTime);
-
-    amp.gain.setValueAtTime(0.4, this.ctx.currentTime);
-
-    lfo.connect(lfoDepth);
-    lfoDepth.connect(pulse.gain);
-    lfoOffset.connect(pulse.gain);
-
-    osc.connect(pulse);
-    pulse.connect(amp);
-    amp.connect(this._musicMaster);
-
-    osc.start();
-    lfo.start();
-    lfoOffset.start();
-
-    this._subOsc = osc;
-    this._subPulse = pulse;
-    this._subAmp = amp;
-    this._subLfo = lfo;
-    this._subLfoDepth = lfoDepth;
-    this._subLfoOffset = lfoOffset;
-  }
-
-  // Layer 3: Filtered noise for texture / atmosphere
-  _startNoiseTexture() {
-    const bufLen = this.ctx.sampleRate * 4;
+  // Layer 2: Filtered air / room tone that opens up as tension rises
+  _startAirBed() {
+    const bufLen = this.ctx.sampleRate * 6;
     const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < bufLen; i++) {
-      data[i] = Math.random() * 2 - 1;
+      data[i] = (Math.random() * 2 - 1) * 0.35;
     }
 
     const src = this.ctx.createBufferSource();
@@ -481,11 +483,11 @@ class QuantumAudio {
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(300, this.ctx.currentTime);
-    filter.Q.setValueAtTime(0.8, this.ctx.currentTime);
+    filter.frequency.setValueAtTime(280, this.ctx.currentTime);
+    filter.Q.setValueAtTime(0.6, this.ctx.currentTime);
 
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.07, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
 
     src.connect(filter);
     filter.connect(gain);
@@ -493,78 +495,86 @@ class QuantumAudio {
 
     src.start();
 
-    this._noiseSrc = src;
-    this._noiseFilter = filter;
-    this._noiseGain = gain;
+    this._airSrc = src;
+    this._airFilter = filter;
+    this._airGain = gain;
   }
 
-  // Layer 4: Rhythmic pulse sequencer — timed blips that create heartbeat tension
-  _startPulseSequencer() {
+  // Layer 3: Soft distant pulse — like a slow clock, speeds up with tension
+  _startSoftPulse() {
+    this._pulseGain = this.ctx.createGain();
+    this._pulseGain.gain.setValueAtTime(0.14, this.ctx.currentTime);
+    this._pulseGain.connect(this._musicMaster);
+    this._schedulePulseLoop();
+  }
+
+  _fireSoftPulse() {
+    if (!this._tensionPlaying || !this.ctx || !this._pulseGain) return;
+    const t = this._tensionIntensity;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(72 + t * 18, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.18);
+
+    const vol = 0.12 + t * 0.18;
+    env.gain.setValueAtTime(0.0001, now);
+    env.gain.linearRampToValueAtTime(vol, now + 0.04);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+    osc.connect(env);
+    env.connect(this._pulseGain);
+
+    osc.start(now);
+    osc.stop(now + 0.4);
+  }
+
+  _schedulePulseLoop() {
+    clearInterval(this._pulseInterval);
+    const t = this._tensionIntensity;
+    const interval = Math.max(650, 1400 - t * 750);
+    this._lastPulseTempo = interval;
+    this._pulseInterval = setInterval(() => this._fireSoftPulse(), interval);
+  }
+
+  // Layer 4: High shimmer — only becomes audible past mid-tension
+  _startShimmer() {
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.28, this.ctx.currentTime);
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(600, this.ctx.currentTime);
+
+    gain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+    osc.connect(filter);
+    filter.connect(gain);
     gain.connect(this._musicMaster);
-    this._pulseGain = gain;
 
-    const pattern = [55, 0, 55, 0, 73.4, 0, 55, 65.4];
-    let step = 0;
+    osc.start();
 
-    const firePulse = () => {
-      if (!this._tensionPlaying || !this.ctx || !this._pulseGain) return;
-      const note = pattern[step % pattern.length];
-      step++;
-      if (note === 0) return;
-
-      const osc = this.ctx.createOscillator();
-      const env = this.ctx.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(note, this.ctx.currentTime);
-
-      env.gain.setValueAtTime(0.001, this.ctx.currentTime);
-      env.gain.exponentialRampToValueAtTime(1.0, this.ctx.currentTime + 0.02);
-      env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.28);
-
-      osc.connect(env);
-      env.connect(this._pulseGain);
-
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.32);
-    };
-
-    const schedulePulseLoop = () => {
-      clearInterval(this._pulseInterval);
-      const interval = Math.max(220, 520 - this._tensionIntensity * 220);
-      this._pulseInterval = setInterval(firePulse, interval);
-      this._lastPulseTempo = interval;
-    };
-
-    schedulePulseLoop();
-
-    this._pulseTempoUpdater = setInterval(() => {
-      if (!this._tensionPlaying) return;
-      const newInterval = Math.max(220, 520 - this._tensionIntensity * 220);
-      if (!this._lastPulseTempo || Math.abs(this._lastPulseTempo - newInterval) > 30) {
-        schedulePulseLoop();
-      }
-    }, 2000);
+    this._shimmerOsc = osc;
+    this._shimmerFilter = filter;
+    this._shimmerGain = gain;
   }
 
   _clearMusicTimers() {
-    clearInterval(this._droneSweepInterval);
     clearInterval(this._pulseInterval);
-    clearInterval(this._pulseTempoUpdater);
     clearInterval(this._musicResumeWatch);
-    this._droneSweepInterval = null;
     this._pulseInterval = null;
-    this._pulseTempoUpdater = null;
     this._musicResumeWatch = null;
   }
 
   _stopMusicNodes() {
     const nodes = [
       this._droneOsc1, this._droneOsc2,
-      this._subOsc, this._subLfo, this._subLfoOffset,
-      this._noiseSrc
+      this._airSrc, this._shimmerOsc
     ];
     nodes.forEach(n => {
       try { if (n) n.stop(); } catch (_) {}
@@ -580,18 +590,13 @@ class QuantumAudio {
     this._droneOsc2 = null;
     this._droneFilter = null;
     this._droneGain = null;
-    this._subOsc = null;
-    this._subPulse = null;
-    this._subAmp = null;
-    this._subLfo = null;
-    this._subLfoDepth = null;
-    this._subLfoOffset = null;
-    this._subGain = null;
-    this._subLfoGain = null;
-    this._noiseSrc = null;
-    this._noiseFilter = null;
-    this._noiseGain = null;
+    this._airSrc = null;
+    this._airFilter = null;
+    this._airGain = null;
     this._pulseGain = null;
+    this._shimmerOsc = null;
+    this._shimmerFilter = null;
+    this._shimmerGain = null;
     this._musicMaster = null;
     this._musicComp = null;
     this._musicOut = null;

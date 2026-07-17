@@ -22,6 +22,10 @@ let gameState = {
 let peerToPlayerMap = {}; // mapping of peerId -> playerId
 let myPlayerId = 1; // Default to Host (Player 1)
 let lastSyncedPhase = null; // avoid reopening turn overlay on every host tick
+let finalRoundStingerPlayed = false;
+let currentTensionValue = 0.1;
+let audioUnlocked = false;
+let lastHeartbeatAt = 0;
 
 // DOM Elements
 const screens = {
@@ -31,6 +35,7 @@ const screens = {
   victory: document.getElementById('victory-screen')
 };
 
+const btnNodes3 = document.getElementById('btn-nodes-3');
 const btnNodes4 = document.getElementById('btn-nodes-4');
 const btnNodes5 = document.getElementById('btn-nodes-5');
 const nodeConfigList = document.getElementById('node-config-list');
@@ -95,6 +100,23 @@ function syncAudioToggleVisibility() {
   audioToggleBtn.style.display = 'flex';
 }
 
+/** Browsers block audio until a user gesture — call on taps/clicks. */
+function unlockAudio() {
+  if (!window.quantumAudio) return;
+  window.quantumAudio.init();
+  if (window.quantumAudio.ctx && window.quantumAudio.ctx.state === 'suspended') {
+    window.quantumAudio.ctx.resume();
+  }
+  audioUnlocked = true;
+  if (
+    gameState.phase !== 'setup' &&
+    gameState.phase !== 'game_over' &&
+    !audioMuted
+  ) {
+    startGameMusic();
+  }
+}
+
 function renderLobbyList(containerId, lobby) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -142,11 +164,17 @@ function syncClientFromHost(payload) {
 
   syncAudioToggleVisibility();
 
+  document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
+  if (gameConfig.nodeCount >= 3 && gameConfig.nodeCount <= 5) {
+    document.body.classList.add(`nodes-${gameConfig.nodeCount}`);
+  }
+
   // Start / keep tension music on joining devices when a match is running
   if (
     gameState.phase !== 'setup' &&
     gameState.phase !== 'game_over' &&
-    !audioMuted
+    !audioMuted &&
+    audioUnlocked
   ) {
     startGameMusic();
     updateTensionIntensity();
@@ -223,31 +251,38 @@ function syncClientFromHost(payload) {
   }
 
   if (phase === 'meltdown_check') {
-    if (lastSyncedPhase !== 'meltdown_check') {
+    const isNewReveal = lastSyncedPhase !== 'meltdown_check';
+    if (isNewReveal) {
       playClankSound();
     }
     lastSyncedPhase = phase;
     if (gameState.history.length > 0) {
       const lastRound = gameState.history[gameState.history.length - 1];
-      gameConfig.players.forEach(p => {
-        if (!p.isAlive) return;
-        const badge = document.getElementById(`node-val-${p.id}`);
-        if (!badge) return;
-        const pChoice = lastRound.choices[p.name];
-        const isDq = lastRound.disqualifiedIds.includes(p.id);
-        const isWinner = lastRound.winnerId === p.id;
+      if (isNewReveal) {
+        // Fresh transition into reveal — play the scramble animation
+        revealPlayerChoicesStaggered(lastRound.winnerId);
+      } else {
+        // Re-sync (e.g. late state resend) — just show final values instantly
+        gameConfig.players.forEach(p => {
+          if (!p.isAlive) return;
+          const badge = document.getElementById(`node-val-${p.id}`);
+          if (!badge) return;
+          const pChoice = lastRound.choices[p.name];
+          const isDq = lastRound.disqualifiedIds.includes(p.id);
+          const isWinner = lastRound.winnerId === p.id;
 
-        if (isDq) {
-          badge.textContent = `DQ (${pChoice})`;
-          badge.className = 'node-value-badge disqualified';
-        } else if (isWinner) {
-          badge.textContent = String(pChoice);
-          badge.className = 'node-value-badge winner green-glow';
-        } else if (pChoice !== null && pChoice !== undefined) {
-          badge.textContent = String(pChoice);
-          badge.className = 'node-value-badge revealed';
-        }
-      });
+          if (isDq) {
+            badge.textContent = `DQ (${pChoice})`;
+            badge.className = 'node-value-badge disqualified';
+          } else if (isWinner) {
+            badge.textContent = String(pChoice);
+            badge.className = 'node-value-badge winner green-glow';
+          } else if (pChoice !== null && pChoice !== undefined) {
+            badge.textContent = String(pChoice);
+            badge.className = 'node-value-badge revealed';
+          }
+        });
+      }
       plotScaleResults(
         gameConfig.players
           .filter(p => p.isAlive && !lastRound.disqualifiedIds.includes(p.id) && lastRound.choices[p.name] !== null && lastRound.choices[p.name] !== undefined)
@@ -384,12 +419,9 @@ function initApp() {
     };
   }
   
-  // Unlock audio context on document click
-  document.addEventListener('click', () => {
-    if (window.quantumAudio) {
-      window.quantumAudio.init();
-    }
-  }, { once: true });
+  // Unlock audio on any tap/click (required for joining players on mobile)
+  document.addEventListener('click', unlockAudio);
+  document.addEventListener('touchstart', unlockAudio, { passive: true });
 
   syncAudioToggleVisibility();
 }
@@ -458,6 +490,7 @@ function setupEventListeners() {
 
   document.getElementById('btn-join-room').addEventListener('click', () => {
     playSelectSound();
+    unlockAudio();
     const code = document.getElementById('join-room-code').value.trim();
     const name = document.getElementById('join-player-name').value.trim() || 'Remote Node';
     if (code.length >= 4) {
@@ -495,23 +528,36 @@ function setupEventListeners() {
     });
   }
   // Node Count Buttons
+  function setActiveNodeCountBtn(activeBtn) {
+    [btnNodes3, btnNodes4, btnNodes5].forEach(btn => {
+      if (btn === activeBtn) {
+        btn.classList.add('btn');
+        btn.classList.remove('btn-secondary');
+      } else {
+        btn.classList.add('btn-secondary');
+        btn.classList.remove('btn');
+      }
+    });
+  }
+
+  btnNodes3.addEventListener('click', () => {
+    playSelectSound();
+    gameConfig.nodeCount = 3;
+    setActiveNodeCountBtn(btnNodes3);
+    renderNodeConfigList();
+  });
+
   btnNodes4.addEventListener('click', () => {
     playSelectSound();
     gameConfig.nodeCount = 4;
-    btnNodes4.classList.add('btn');
-    btnNodes4.classList.remove('btn-secondary');
-    btnNodes5.classList.add('btn-secondary');
-    btnNodes5.classList.remove('btn');
+    setActiveNodeCountBtn(btnNodes4);
     renderNodeConfigList();
   });
 
   btnNodes5.addEventListener('click', () => {
     playSelectSound();
     gameConfig.nodeCount = 5;
-    btnNodes5.classList.add('btn');
-    btnNodes5.classList.remove('btn-secondary');
-    btnNodes4.classList.add('btn-secondary');
-    btnNodes4.classList.remove('btn');
+    setActiveNodeCountBtn(btnNodes5);
     renderNodeConfigList();
   });
 
@@ -562,6 +608,7 @@ function setupEventListeners() {
   document.getElementById('btn-restart-game').addEventListener('click', () => {
     playSelectSound();
     gameState.phase = 'setup';
+    document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   });
 
@@ -628,6 +675,20 @@ function playMeltdownSound() {
   if (canPlayAudio()) window.quantumAudio.playMeltdown();
 }
 
+function playHeartbeatSound() {
+  if (canPlayAudio()) window.quantumAudio.playHeartbeat();
+}
+
+function playFinalRoundStinger() {
+  if (canPlayAudio()) window.quantumAudio.playFinalRoundStinger();
+}
+
+function vibrate(pattern) {
+  if (navigator.vibrate) {
+    try { navigator.vibrate(pattern); } catch (_) {}
+  }
+}
+
 // Calculate and update tension music intensity based on game state
 function updateTensionIntensity() {
   if (!canPlayAudio()) return;
@@ -645,6 +706,26 @@ function updateTensionIntensity() {
 
   const finalIntensity = Math.min(1.0, intensity + eliminationBonus);
   window.quantumAudio.setTensionIntensity(finalIntensity);
+  currentTensionValue = finalIntensity;
+
+  // Drive the screen vignette pulse off the same value (see style.css)
+  document.documentElement.style.setProperty('--tension', finalIntensity.toFixed(3));
+
+  // Heartbeat thump when any node is critically low — throttled so it isn't spammy
+  if (worstStability <= -6 && worstStability > -10) {
+    const now = Date.now();
+    if (now - lastHeartbeatAt > 1400) {
+      lastHeartbeatAt = now;
+      playHeartbeatSound();
+    }
+  }
+
+  // One-time stinger + haptic the moment the match narrows to its final 2 nodes
+  if (alivePlayers.length === 2 && !finalRoundStingerPlayed) {
+    finalRoundStingerPlayed = true;
+    playFinalRoundStinger();
+    vibrate([80, 40, 80]);
+  }
 }
 
 function startGameMusic() {
@@ -757,6 +838,7 @@ function startGame() {
   // Reset State
   gameState.currentRound = 1;
   gameState.history = [];
+  finalRoundStingerPlayed = false;
   
   // Render Arena UI baseline
   renderActiveRulesTags();
@@ -777,6 +859,9 @@ function startGame() {
   switchScreen('arena');
   btnArenaAction.style.display = 'block';
   btnAbortGame.style.display = 'block';
+
+  document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
+  document.body.classList.add(`nodes-${gameConfig.nodeCount}`);
   
   if (isOnlineHost()) {
     // Auto-seat: Host + connected friends as humans; leftover seats become AI
@@ -831,6 +916,7 @@ function abortGame() {
       window.Network.broadcastAbort();
     }
     gameState.phase = 'setup';
+    document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   }
 }
@@ -956,7 +1042,8 @@ function updatePlayerLiquidUI(playerId) {
       bubble.style.height = `${size}px`;
       bubble.style.left = `${Math.random() * 80 + 10}%`;
       bubble.style.animationDelay = `${Math.random() * 1.5}s`;
-      bubble.style.animationDuration = `${1.2 + Math.random() * 1}s`;
+      const bubbleSpeedFactor = Math.max(0.35, 1 - currentTensionValue * 0.6);
+      bubble.style.animationDuration = `${(1.2 + Math.random() * 1) * bubbleSpeedFactor}s`;
       
       fluid.appendChild(bubble);
     }
@@ -1059,6 +1146,7 @@ function checkAllInputsReceived() {
 function handleLockInput() {
   const choice = parseInt(nodeInputSlider.value, 10);
   playSelectSound();
+  unlockAudio();
   
   if (isOnlineClient()) {
     window.Network.sendInputToHost(choice);
@@ -1390,24 +1478,11 @@ function evaluateRound() {
   lcdAverage.textContent = average.toFixed(2);
   lcdTarget.textContent = target.toFixed(2);
 
-  // Reveal player choices on cards
+  // Reveal player choices with a staggered scramble effect for tension
+  revealPlayerChoicesStaggered(winnerId);
   gameConfig.players.forEach(p => {
     if (!p.isAlive) return;
-
-    const badge = document.getElementById(`node-val-${p.id}`);
-    
-    if (p.isDisqualified) {
-      badge.textContent = `DQ (${p.lastChoice})`;
-      badge.className = 'node-value-badge disqualified';
-    } else if (p.id === winnerId) {
-      badge.textContent = p.lastChoice.toString();
-      badge.className = 'node-value-badge winner green-glow';
-    } else {
-      badge.textContent = p.lastChoice.toString();
-      badge.className = 'node-value-badge revealed';
-    }
-
-    // Update stability and liquid
+    // Stability/liquid updates instantly; the number badge reveal is staggered above
     updatePlayerLiquidUI(p.id);
   });
 
@@ -1433,6 +1508,9 @@ function evaluateRound() {
 
   if (exactMatchHit) {
     resultText += `Precision Spike Hit! Other nodes suffer double stability drain.`;
+    screens.arena.classList.add('glitch-effect');
+    vibrate([40, 30, 40, 30, 90]);
+    setTimeout(() => screens.arena.classList.remove('glitch-effect'), 400);
   }
 
   arenaInstructions.textContent = resultText;
@@ -1483,16 +1561,58 @@ function plotScaleResults(validChoices, target, disqualifiedIds) {
   scalePlots.appendChild(targetPlot);
 }
 
+// Reveal player choice badges one at a time with a slot-machine scramble.
+// Non-winners flip first, in order; the winner flips last for suspense.
+function revealPlayerChoicesStaggered(winnerId) {
+  const alive = gameConfig.players.filter(p => p.isAlive);
+  const nonWinners = alive.filter(p => p.id !== winnerId);
+  const winner = alive.find(p => p.id === winnerId);
+  const order = winner ? [...nonWinners, winner] : alive;
+
+  order.forEach((p, index) => {
+    setTimeout(() => {
+      scrambleRevealBadge(p, winnerId);
+      playTickSound();
+    }, index * 220);
+  });
+}
+
+function scrambleRevealBadge(p, winnerId) {
+  const badge = document.getElementById(`node-val-${p.id}`);
+  if (!badge || p.lastChoice === null || p.lastChoice === undefined) return;
+
+  const finalText = p.isDisqualified ? `DQ (${p.lastChoice})` : p.lastChoice.toString();
+  const finalClass = p.isDisqualified
+    ? 'node-value-badge disqualified'
+    : (p.id === winnerId ? 'node-value-badge winner green-glow' : 'node-value-badge revealed');
+
+  let ticks = 0;
+  const maxTicks = 6;
+  const scrambleInterval = setInterval(() => {
+    ticks++;
+    if (ticks >= maxTicks) {
+      clearInterval(scrambleInterval);
+      badge.textContent = finalText;
+      badge.className = finalClass;
+    } else {
+      badge.textContent = Math.floor(Math.random() * 101).toString();
+      badge.className = 'node-value-badge locked';
+    }
+  }, 40);
+}
+
 // Meltdown verification phase (deactivating players who hit -10)
 function prepareNextRoundOrFinish() {
   if (gameState.phase !== 'meltdown_check') return;
   let meltdownsHappened = false;
+  let meltdownCount = 0;
 
   gameConfig.players.forEach(p => {
     if (p.isAlive && p.stability <= -10) {
       p.isAlive = false;
       p.stability = -10;
       meltdownsHappened = true;
+      meltdownCount++;
       
       // Update UI card to show meltdown
       updatePlayerLiquidUI(p.id);
@@ -1501,12 +1621,15 @@ function prepareNextRoundOrFinish() {
 
   if (meltdownsHappened) {
     playMeltdownSound();
-    
-    // Shake effect on arena
+    vibrate(meltdownCount > 1 ? [120, 60, 120, 60, 120] : [150]);
+
+    // Shake effect on arena — heavier if multiple nodes melted at once
+    const heavy = meltdownCount > 1;
     screens.arena.classList.add('shake-effect');
+    if (heavy) screens.arena.classList.add('shake-heavy');
     setTimeout(() => {
-      screens.arena.classList.remove('shake-effect');
-    }, 500);
+      screens.arena.classList.remove('shake-effect', 'shake-heavy');
+    }, heavy ? 800 : 500);
 
     arenaInstructions.textContent = "Critical alert: Core Stability exceeded limits! Triggered coolant overflow purge.";
   }
