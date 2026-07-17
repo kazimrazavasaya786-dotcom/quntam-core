@@ -1418,6 +1418,8 @@ function showRuleNotice(ruleId, options = {}) {
         || gameState.lastDirectorReason
         || 'The Engine detected a solved meta.';
       ruleNoticeContext.textContent = `${why} ${def.trigger || ''}`.trim();
+    } else if (getAliveCount() === 2) {
+      ruleNoticeContext.textContent = `Final duel locked. Only Same-Value DQ and Zero-One Override stay active — all other protocols are offline. ${def.trigger || ''}`;
     } else {
       ruleNoticeContext.textContent = `A node was eliminated — or the Adaptive Engine escalated. This protocol was not selected at start and is now active. ${def.trigger || ''}`;
     }
@@ -1466,26 +1468,56 @@ function getAliveCount() {
 }
 
 /**
+ * Final duel (exactly 2 alive):
+ * - Strip Precision Spike + every Adaptive inventable
+ * - Keep Same-Value DQ if already on; otherwise turn it on
+ * - Keep Zero-One Override if already on; otherwise turn it on
+ * Returns rule ids that were newly activated (for notice queue).
+ */
+function ensureDuelProtocols() {
+  const newlyAdded = [];
+
+  // Other rules must be gone in the duel
+  gameConfig.rules.rule2 = false;
+  gameConfig.dynamicRules = {};
+
+  if (!gameConfig.rules.rule1) {
+    gameConfig.rules.rule1 = true;
+    newlyAdded.push(1);
+  }
+  if (!gameConfig.rules.rule3) {
+    gameConfig.rules.rule3 = true;
+    newlyAdded.push(3);
+  }
+
+  renderActiveRulesTags();
+  return newlyAdded;
+}
+
+/**
  * Final stretch rules:
  * - 2 nodes left → only Same-Value DQ (rule1) + Zero-One Override (rule3)
  * - 1 (or 0) left → no rules shown or applied
+ * Returns newly activated classic rule ids when entering duel.
  */
 function syncRulesForAliveCount() {
   const alive = getAliveCount();
 
   if (alive <= 1) {
-    // Winner / game over — strip everything from the board
     gameConfig.rules.rule1 = false;
     gameConfig.rules.rule2 = false;
     gameConfig.rules.rule3 = false;
     gameConfig.dynamicRules = {};
-  } else if (alive === 2) {
-    // Duel mode — drop Precision Spike + all Adaptive inventables
-    gameConfig.rules.rule2 = false;
-    gameConfig.dynamicRules = {};
+    renderActiveRulesTags();
+    return [];
+  }
+
+  if (alive === 2) {
+    return ensureDuelProtocols();
   }
 
   renderActiveRulesTags();
+  return [];
 }
 
 function renderActiveRulesTags() {
@@ -1499,16 +1531,13 @@ function renderActiveRulesTags() {
     return;
   }
 
-  // 1v1 — only Same-Value DQ + Zero-One Override
+  // 1v1 — only Same-Value DQ + Zero-One Override (both should be on)
   if (alive === 2) {
     if (gameConfig.rules.rule1) {
       activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[1].shortTag}</span>`;
     }
     if (gameConfig.rules.rule3) {
       activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[3].shortTag}</span>`;
-    }
-    if (activeRulesTags.innerHTML === '') {
-      activeRulesTags.innerHTML = `<span class="rule-tag" style="background: rgba(255,255,255,0.03); color: var(--text-secondary); border-color: rgba(255,255,255,0.05)">Duel: awaiting protocols</span>`;
     }
     return;
   }
@@ -2346,23 +2375,46 @@ function prepareNextRoundOrFinish() {
 
     arenaInstructions.textContent = "Critical alert: Core Stability exceeded limits! Triggered coolant overflow purge.";
 
-    // Lock rules to duel / clear for winner before adding anything new
-    syncRulesForAliveCount();
+    const aliveAfter = getAliveCount();
+    let allAdded = [];
+    let analysis = { reasons: [] };
 
-    const elimAdded = addEliminationRules(meltdownCount);
-    const { injected, analysis } = decideAdaptiveInjections({
-      eliminationCount: meltdownCount,
-      alreadyQueued: elimAdded
-    });
-    const allAdded = [...elimAdded, ...injected];
+    if (aliveAfter <= 1) {
+      // Winner only — clear every rule, no notices
+      syncRulesForAliveCount();
+    } else if (aliveAfter === 2) {
+      // Final duel: strip other rules; keep Same-Value if already on; ADD Override if missing
+      allAdded = ensureDuelProtocols();
+      analysis = {
+        reasons: ['Final duel: only Same-Value DQ and Zero-One Override remain active.']
+      };
+      gameState.lastDirectorReason = analysis.reasons[0];
+    } else {
+      // 3+ survivors — normal elimination + adaptive inject
+      const elimAdded = addEliminationRules(meltdownCount);
+      const adaptive = decideAdaptiveInjections({
+        eliminationCount: meltdownCount,
+        alreadyQueued: elimAdded
+      });
+      allAdded = [...elimAdded, ...adaptive.injected];
+      analysis = adaptive.analysis;
+    }
+
     if (queueRuleNotices(allAdded, analysis)) return;
   } else {
     // No meltdown — Engine can still invent if the meta feels finished (3+ nodes only)
-    const { injected, analysis } = decideAdaptiveInjections({
-      eliminationCount: 0,
-      alreadyQueued: []
-    });
-    if (queueRuleNotices(injected, analysis)) return;
+    if (getAliveCount() === 2) {
+      const duelAdded = ensureDuelProtocols();
+      if (queueRuleNotices(duelAdded, {
+        reasons: ['Final duel: only Same-Value DQ and Zero-One Override remain active.']
+      })) return;
+    } else {
+      const { injected, analysis } = decideAdaptiveInjections({
+        eliminationCount: 0,
+        alreadyQueued: []
+      });
+      if (queueRuleNotices(injected, analysis)) return;
+    }
   }
 
   finishMeltdownAndAdvanceRound();
