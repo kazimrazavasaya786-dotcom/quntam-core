@@ -74,6 +74,12 @@ const ruleCards = {
   3: document.getElementById('rule-card-3')
 };
 
+const ruleChecks = {
+  1: document.getElementById('rule-check-1'),
+  2: document.getElementById('rule-check-2'),
+  3: document.getElementById('rule-check-3')
+};
+
 const turnPlayerName = document.getElementById('turn-player-name');
 const turnPrompt = document.getElementById('turn-prompt');
 const btnAccessConfirm = document.getElementById('btn-access-confirm');
@@ -100,6 +106,10 @@ let audioMuted = false;
 const btnProtocols = document.getElementById('btn-protocols');
 const btnCloseProtocols = document.getElementById('btn-close-protocols');
 const protocolsModal = document.getElementById('protocols-modal');
+const btnEliminationRules = document.getElementById('btn-elimination-rules');
+const btnCloseEliminationRules = document.getElementById('btn-close-elimination-rules');
+const eliminationRulesModal = document.getElementById('elimination-rules-modal');
+const eliminationRulesSummary = document.getElementById('elimination-rules-summary');
 const ruleNoticeModal = document.getElementById('rule-notice-modal');
 const ruleNoticeTitle = document.getElementById('rule-notice-title');
 const ruleNoticeDesc = document.getElementById('rule-notice-desc');
@@ -636,13 +646,14 @@ function setupEventListeners() {
     : gameConfig.nodeCount === 4 ? btnNodes4 : btnNodes5;
   if (defaultNodeBtn) setActiveNodeCountBtn(defaultNodeBtn);
 
-  // Rule Cards Click Toggles
-  Object.keys(ruleCards).forEach(ruleNum => {
-    const card = ruleCards[ruleNum];
-    if (!card) return;
-    card.addEventListener('click', () => {
+  // Rule tick rows in setup
+  Object.keys(ruleChecks).forEach(ruleNum => {
+    const check = ruleChecks[ruleNum];
+    if (!check) return;
+
+    check.addEventListener('change', () => {
       playSelectSound();
-      gameConfig.rules[`rule${ruleNum}`] = !gameConfig.rules[`rule${ruleNum}`];
+      gameConfig.rules[`rule${ruleNum}`] = check.checked;
       syncRuleCardsUI();
     });
   });
@@ -725,6 +736,17 @@ function setupEventListeners() {
   bindClick(btnCloseProtocols, () => {
     playSelectSound();
     if (protocolsModal) protocolsModal.style.display = 'none';
+  });
+
+  bindClick(btnEliminationRules, () => {
+    playSelectSound();
+    syncRuleCardsUI();
+    if (eliminationRulesModal) eliminationRulesModal.style.display = 'flex';
+  });
+
+  bindClick(btnCloseEliminationRules, () => {
+    playSelectSound();
+    if (eliminationRulesModal) eliminationRulesModal.style.display = 'none';
   });
 }
 
@@ -1013,13 +1035,25 @@ function abortGame() {
 function syncRuleCardsUI() {
   Object.keys(ruleCards).forEach(ruleNum => {
     const card = ruleCards[ruleNum];
-    if (!card) return;
-    if (gameConfig.rules[`rule${ruleNum}`]) {
-      card.classList.add('enabled');
-    } else {
-      card.classList.remove('enabled');
+    const check = ruleChecks[ruleNum];
+    const enabled = !!gameConfig.rules[`rule${ruleNum}`];
+    if (check) check.checked = enabled;
+    if (card) {
+      card.classList.toggle('enabled', enabled);
     }
   });
+  updateEliminationRulesSummary();
+}
+
+function updateEliminationRulesSummary() {
+  if (!eliminationRulesSummary) return;
+  const selected = [1, 2, 3].filter(n => gameConfig.rules[`rule${n}`]);
+  if (selected.length === 0) {
+    eliminationRulesSummary.textContent = 'No rules selected — all added on elimination';
+    return;
+  }
+  const names = selected.map(n => RULE_DEFINITIONS[n].shortTag).join(', ');
+  eliminationRulesSummary.textContent = `${selected.length} rule${selected.length > 1 ? 's' : ''} active from Round 1: ${names}`;
 }
 
 function getNextUnmarkedEliminationRule() {

@@ -89,35 +89,11 @@
         </div>
       </div>
 
-      <div class="setup-section">
+      <div class="setup-section elimination-rules-section">
         <h3>3. Add Elimination Rules From Start</h3>
-        <p class="setup-hint">Leave rules unmarked to add them automatically when a node is eliminated. Mark any rule now to activate it from Round 1.</p>
-        <div class="rules-grid">
-          <!-- Rule 1 -->
-          <div class="rule-toggle-card" id="rule-card-1">
-            <div class="rule-checkbox"></div>
-            <div class="rule-info">
-              <div class="rule-name">Disqualification Protocol</div>
-              <div class="rule-desc">If multiple nodes select the exact same value, they are immediately disqualified and receive a stability penalty.</div>
-            </div>
-          </div>
-          <!-- Rule 2 -->
-          <div class="rule-toggle-card" id="rule-card-2">
-            <div class="rule-checkbox"></div>
-            <div class="rule-info">
-              <div class="rule-name">Precision Target Spike</div>
-              <div class="rule-desc">If a node hits the target value precisely, all other nodes suffer double stability depletion (-2 points).</div>
-            </div>
-          </div>
-          <!-- Rule 3 -->
-          <div class="rule-toggle-card" id="rule-card-3">
-            <div class="rule-checkbox"></div>
-            <div class="rule-info">
-              <div class="rule-name">Quantum Zero-One Override</div>
-              <div class="rule-desc">In 1v1 shutdown mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins.</div>
-            </div>
-          </div>
-        </div>
+        <p class="setup-hint">Choose which elimination protocols activate from Round 1. Unmarked rules are added automatically when a node is eliminated.</p>
+        <button type="button" id="btn-elimination-rules" class="btn btn-secondary btn-setup-panel">Add Elimination Rules From Start</button>
+        <p id="elimination-rules-summary" class="elimination-rules-summary">No rules selected — all added on elimination</p>
       </div>
       </div> <!-- End standard-setup-sections -->
 
@@ -273,6 +249,49 @@
       </div>
 
       <button id="btn-close-protocols" class="btn btn-center">Close Console</button>
+    </div>
+  </div>
+
+  <!-- ELIMINATION RULES SETUP MODAL -->
+  <div id="elimination-rules-modal" class="turn-overlay elimination-rules-modal" style="display: none; z-index: 200;">
+    <div class="glass-panel elimination-rules-panel">
+      <div class="turn-instruction elimination-rules-title">ADD ELIMINATION RULES FROM START</div>
+
+      <p class="elimination-rules-intro">
+        Tick any rule to activate it from <strong style="color: var(--accent-cyan);">Round 1</strong>.
+        Leave rules unmarked and they will be added automatically when a node is eliminated.
+      </p>
+
+      <div class="elimination-rules-list">
+        <label class="rule-toggle-card" id="rule-card-1" for="rule-check-1">
+          <input type="checkbox" id="rule-check-1" class="rule-pick-input">
+          <span class="rule-checkbox" aria-hidden="true"></span>
+          <div class="rule-info">
+            <div class="rule-name">Disqualification Protocol</div>
+            <div class="rule-desc">If multiple nodes select the exact same value, they are immediately disqualified and receive a stability penalty. Active when 4 or fewer nodes remain.</div>
+          </div>
+        </label>
+
+        <label class="rule-toggle-card" id="rule-card-2" for="rule-check-2">
+          <input type="checkbox" id="rule-check-2" class="rule-pick-input">
+          <span class="rule-checkbox" aria-hidden="true"></span>
+          <div class="rule-info">
+            <div class="rule-name">Precision Target Spike</div>
+            <div class="rule-desc">If a node hits the target value precisely, all other nodes suffer double stability depletion (-2 points). Active when 3 or fewer nodes remain.</div>
+          </div>
+        </label>
+
+        <label class="rule-toggle-card" id="rule-card-3" for="rule-check-3">
+          <input type="checkbox" id="rule-check-3" class="rule-pick-input">
+          <span class="rule-checkbox" aria-hidden="true"></span>
+          <div class="rule-info">
+            <div class="rule-name">Quantum Zero-One Override</div>
+            <div class="rule-desc">In 1v1 shutdown mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins. Active when exactly 2 nodes remain.</div>
+          </div>
+        </label>
+      </div>
+
+      <button type="button" id="btn-close-elimination-rules" class="btn btn-center">Save &amp; Close</button>
     </div>
   </div>
 
