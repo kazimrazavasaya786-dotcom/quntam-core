@@ -1170,8 +1170,21 @@ function getNextUnmarkedEliminationRule() {
 
 function addEliminationRules(eliminationCount) {
   const added = [];
+  const alive = getAliveCount();
+
+  // At 2 nodes, only Same-Value (1) and Zero-One Override (3) may be added
+  // At 1 or fewer, add nothing
+  const allowed = alive <= 1 ? [] : alive === 2 ? [1, 3] : [1, 2, 3];
+
   for (let i = 0; i < eliminationCount; i++) {
-    const ruleNum = getNextUnmarkedEliminationRule();
+    let ruleNum = null;
+    for (const n of allowed) {
+      const key = `rule${n}`;
+      if (!gameConfig.rulesAtStart[key] && !gameConfig.rules[key]) {
+        ruleNum = n;
+        break;
+      }
+    }
     if (!ruleNum) break;
     gameConfig.rules[`rule${ruleNum}`] = true;
     added.push(ruleNum);
@@ -1312,6 +1325,13 @@ function decideAdaptiveInjections(options = {}) {
   const metaHot = analysis.score >= 0.42;
   const metaCritical = analysis.score >= 0.65;
   const afterElim = eliminationCount > 0;
+  const alive = getAliveCount();
+
+  // Final duel / winner — no inventable rules; only classic 1v1 pair may remain
+  if (alive <= 2) {
+    return { injected, analysis };
+  }
+
   const canInject =
     gameState.history.length >= 1 &&
     (roundsSince >= 1 || afterElim) &&
@@ -1335,6 +1355,7 @@ function decideAdaptiveInjections(options = {}) {
   }
 
   // Also bring in a classic unmarked rule when pressure is high (not only on elim)
+  // Skip Precision Spike (2) once the field is shrinking toward a duel
   if ((metaCritical || (afterElim && metaHot)) && injected.length < 2) {
     const classic = getNextUnmarkedEliminationRule();
     if (classic && !alreadyQueued.includes(classic) && !injected.includes(classic)) {
@@ -1440,8 +1461,58 @@ function acknowledgeRuleNotice() {
   }
 }
 
+function getAliveCount() {
+  return gameConfig.players.filter(p => p.isAlive).length;
+}
+
+/**
+ * Final stretch rules:
+ * - 2 nodes left → only Same-Value DQ (rule1) + Zero-One Override (rule3)
+ * - 1 (or 0) left → no rules shown or applied
+ */
+function syncRulesForAliveCount() {
+  const alive = getAliveCount();
+
+  if (alive <= 1) {
+    // Winner / game over — strip everything from the board
+    gameConfig.rules.rule1 = false;
+    gameConfig.rules.rule2 = false;
+    gameConfig.rules.rule3 = false;
+    gameConfig.dynamicRules = {};
+  } else if (alive === 2) {
+    // Duel mode — drop Precision Spike + all Adaptive inventables
+    gameConfig.rules.rule2 = false;
+    gameConfig.dynamicRules = {};
+  }
+
+  renderActiveRulesTags();
+}
+
 function renderActiveRulesTags() {
+  if (!activeRulesTags) return;
   activeRulesTags.innerHTML = '';
+
+  const alive = getAliveCount();
+
+  // Solo winner (or empty field) — hide all protocol tags
+  if (alive <= 1) {
+    return;
+  }
+
+  // 1v1 — only Same-Value DQ + Zero-One Override
+  if (alive === 2) {
+    if (gameConfig.rules.rule1) {
+      activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[1].shortTag}</span>`;
+    }
+    if (gameConfig.rules.rule3) {
+      activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[3].shortTag}</span>`;
+    }
+    if (activeRulesTags.innerHTML === '') {
+      activeRulesTags.innerHTML = `<span class="rule-tag" style="background: rgba(255,255,255,0.03); color: var(--text-secondary); border-color: rgba(255,255,255,0.05)">Duel: awaiting protocols</span>`;
+    }
+    return;
+  }
+
   if (gameConfig.rules.rule1) {
     activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[1].shortTag}</span>`;
   }
@@ -1977,8 +2048,10 @@ function evaluateRound() {
     });
   }
 
-  // Adaptive Engine inventable DQ filters (floor ban, range lift, proximity, etc.)
-  ({ validChoices, disqualifiedIds } = applyAdaptiveDisqualifiers(activePlayers, validChoices, disqualifiedIds));
+  // Adaptive inventables only while 3+ nodes remain (duel = classic pair only)
+  if (numActive > 2) {
+    ({ validChoices, disqualifiedIds } = applyAdaptiveDisqualifiers(activePlayers, validChoices, disqualifiedIds));
+  }
 
   // 2. Calculations
   let average = 0;
@@ -2018,16 +2091,23 @@ function evaluateRound() {
     }
   }
 
-  // Standard / Echo Inversion winner pick
+  // Standard / Echo Inversion winner pick (Echo only with 3+ nodes)
   if (!rule3Triggered) {
-    const pick = pickWinnerWithAdaptiveRules(validChoices, target, rule3Triggered);
-    winnerId = pick.winnerId;
-    echoInversion = pick.echoInversion;
+    if (numActive > 2) {
+      const pick = pickWinnerWithAdaptiveRules(validChoices, target, rule3Triggered);
+      winnerId = pick.winnerId;
+      echoInversion = pick.echoInversion;
+    } else if (validChoices.length > 0) {
+      const ranked = [...validChoices]
+        .map(item => ({ ...item, diff: Math.abs(item.choice - target) }))
+        .sort((a, b) => a.diff - b.diff);
+      const minDiff = ranked[0].diff;
+      winnerId = ranked.filter(r => r.diff === minDiff)[0].id;
+    }
   }
 
-  // Check if winner got the exact target value (Precision Spike Rule 2)
-  // Triggers only when 3 or fewer active nodes remain
-  const rule2Active = gameConfig.rules.rule2 && (numActive <= 3);
+  // Precision Spike — not used in final duel (only Same-Value + Override)
+  const rule2Active = gameConfig.rules.rule2 && (numActive <= 3) && (numActive > 2);
   if (rule2Active && winnerId !== null && !echoInversion) {
     const winnerChoice = gameConfig.players.find(p => p.id === winnerId).lastChoice;
     // float precision match check
@@ -2075,7 +2155,7 @@ function evaluateRound() {
     }
   });
 
-  lowTaxHit = applyLowMajorityTax(activePlayers, stabilityUpdates);
+  lowTaxHit = numActive > 2 && applyLowMajorityTax(activePlayers, stabilityUpdates);
   if (lowTaxHit) someoneSizzled = true;
 
   // Save Round History
@@ -2266,6 +2346,9 @@ function prepareNextRoundOrFinish() {
 
     arenaInstructions.textContent = "Critical alert: Core Stability exceeded limits! Triggered coolant overflow purge.";
 
+    // Lock rules to duel / clear for winner before adding anything new
+    syncRulesForAliveCount();
+
     const elimAdded = addEliminationRules(meltdownCount);
     const { injected, analysis } = decideAdaptiveInjections({
       eliminationCount: meltdownCount,
@@ -2274,7 +2357,7 @@ function prepareNextRoundOrFinish() {
     const allAdded = [...elimAdded, ...injected];
     if (queueRuleNotices(allAdded, analysis)) return;
   } else {
-    // No meltdown — Engine can still invent if the meta feels finished
+    // No meltdown — Engine can still invent if the meta feels finished (3+ nodes only)
     const { injected, analysis } = decideAdaptiveInjections({
       eliminationCount: 0,
       alreadyQueued: []
@@ -2288,6 +2371,7 @@ function prepareNextRoundOrFinish() {
 function finishMeltdownAndAdvanceRound() {
   // Count survivors
   const survivors = gameConfig.players.filter(p => p.isAlive);
+  syncRulesForAliveCount();
 
   if (survivors.length <= 1) {
     // Game is Over!
@@ -2352,6 +2436,7 @@ function declareGameOver(survivors) {
 
   // Stop tension music on game end
   stopGameMusic();
+  syncRulesForAliveCount();
 
   playWarningSound();
   switchScreen('victory');
