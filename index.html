@@ -90,10 +90,11 @@
       </div>
 
       <div class="setup-section">
-        <h3>3. Protocol Overrides</h3>
+        <h3>3. Add Elimination Rules From Start</h3>
+        <p class="setup-hint">Leave rules unmarked to add them automatically when a node is eliminated. Mark any rule now to activate it from Round 1.</p>
         <div class="rules-grid">
           <!-- Rule 1 -->
-          <div class="rule-toggle-card enabled" id="rule-card-1">
+          <div class="rule-toggle-card" id="rule-card-1">
             <div class="rule-checkbox"></div>
             <div class="rule-info">
               <div class="rule-name">Disqualification Protocol</div>
@@ -101,7 +102,7 @@
             </div>
           </div>
           <!-- Rule 2 -->
-          <div class="rule-toggle-card enabled" id="rule-card-2">
+          <div class="rule-toggle-card" id="rule-card-2">
             <div class="rule-checkbox"></div>
             <div class="rule-info">
               <div class="rule-name">Precision Target Spike</div>
@@ -109,7 +110,7 @@
             </div>
           </div>
           <!-- Rule 3 -->
-          <div class="rule-toggle-card enabled" id="rule-card-3">
+          <div class="rule-toggle-card" id="rule-card-3">
             <div class="rule-checkbox"></div>
             <div class="rule-info">
               <div class="rule-name">Quantum Zero-One Override</div>
@@ -272,6 +273,17 @@
       </div>
 
       <button id="btn-close-protocols" class="btn btn-center">Close Console</button>
+    </div>
+  </div>
+
+  <!-- ELIMINATION RULE NOTICE -->
+  <div id="rule-notice-modal" class="turn-overlay rule-notice-modal" style="display: none; z-index: 210;">
+    <div class="glass-panel rule-notice-panel">
+      <div class="rule-notice-badge">ELIMINATION PROTOCOL ADDED</div>
+      <div class="turn-instruction rule-notice-title" id="rule-notice-title">Rule Name</div>
+      <p class="rule-notice-desc" id="rule-notice-desc"></p>
+      <p class="rule-notice-context" id="rule-notice-context"></p>
+      <button type="button" id="btn-ack-rule-notice" class="btn btn-center">Acknowledge Protocol</button>
     </div>
   </div>
 

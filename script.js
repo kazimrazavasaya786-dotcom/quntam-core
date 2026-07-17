@@ -5,18 +5,45 @@ let gameConfig = {
   nodeCount: 5,
   players: [],
   rules: {
-    rule1: true, // Disqualification on duplicate values
-    rule2: true, // Precision Target Spike (exact target match penalty for others)
-    rule3: true  // 100 beats 0 in 1v1 shutdown
+    rule1: false, // Disqualification on duplicate values
+    rule2: false, // Precision Target Spike (exact target match penalty for others)
+    rule3: false  // 100 beats 0 in 1v1 shutdown
+  },
+  rulesAtStart: {
+    rule1: false,
+    rule2: false,
+    rule3: false
+  }
+};
+
+const RULE_DEFINITIONS = {
+  1: {
+    name: 'Disqualification Protocol',
+    shortTag: 'Disqual. Override',
+    desc: 'If multiple nodes select the exact same value, they are immediately disqualified and receive a stability penalty.',
+    trigger: 'Active when 4 or fewer nodes remain.'
+  },
+  2: {
+    name: 'Precision Target Spike',
+    shortTag: 'Precision Spike',
+    desc: 'If a node hits the target value precisely, all other nodes suffer double stability depletion (-2 points).',
+    trigger: 'Active when 3 or fewer nodes remain.'
+  },
+  3: {
+    name: 'Quantum Zero-One Override',
+    shortTag: 'Zero-One Override',
+    desc: 'In 1v1 shutdown mode, if one node chooses 0 and the other chooses 100, the node choosing 100 overrides all calculations and wins.',
+    trigger: 'Active when exactly 2 nodes remain.'
   }
 };
 
 let gameState = {
   currentRound: 1,
-  phase: 'setup', // 'setup', 'arena', 'input', 'reveal', 'meltdown_check', 'game_over'
+  phase: 'setup', // 'setup', 'arena', 'input', 'reveal', 'meltdown_check', 'rule_notice', 'game_over'
   activeHumanIndex: -1, // DEPRECATED in multiplayer
   history: [],
-  winnerId: null
+  winnerId: null,
+  ruleNoticeQueue: []
 };
 
 let peerToPlayerMap = {}; // mapping of peerId -> playerId
@@ -73,6 +100,11 @@ let audioMuted = false;
 const btnProtocols = document.getElementById('btn-protocols');
 const btnCloseProtocols = document.getElementById('btn-close-protocols');
 const protocolsModal = document.getElementById('protocols-modal');
+const ruleNoticeModal = document.getElementById('rule-notice-modal');
+const ruleNoticeTitle = document.getElementById('rule-notice-title');
+const ruleNoticeDesc = document.getElementById('rule-notice-desc');
+const ruleNoticeContext = document.getElementById('rule-notice-context');
+const btnAckRuleNotice = document.getElementById('btn-ack-rule-notice');
 
 const defaultNames = ['Node Alpha', 'Node Beta', 'Node Gamma', 'Node Delta', 'Node Epsilon'];
 const aiPersonalities = ['rationalist', 'analyst', 'maverick', 'defender'];
@@ -162,6 +194,10 @@ function syncClientFromHost(payload) {
   const myPeerId = window.Network.getPeerId();
   myPlayerId = peerToPlayerMap[myPeerId] || null;
 
+  if (gameState.phase !== 'rule_notice') {
+    hideRuleNoticeModal();
+  }
+
   syncAudioToggleVisibility();
 
   document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
@@ -250,6 +286,20 @@ function syncClientFromHost(payload) {
     return;
   }
 
+  if (phase === 'rule_notice') {
+    const isNewNotice = lastSyncedPhase !== 'rule_notice';
+    lastSyncedPhase = phase;
+    if (gameState.ruleNoticeQueue && gameState.ruleNoticeQueue.length > 0) {
+      showRuleNotice(gameState.ruleNoticeQueue[0], { announce: isNewNotice });
+    }
+    renderActiveRulesTags();
+    if (clientStatus) {
+      clientStatus.textContent = 'New elimination protocol activated. Waiting for host acknowledgment...';
+    }
+    switchScreen('arena');
+    return;
+  }
+
   if (phase === 'meltdown_check') {
     const isNewReveal = lastSyncedPhase !== 'meltdown_check';
     if (isNewReveal) {
@@ -333,6 +383,7 @@ function initApp() {
   setupEventListeners();
   renderNodeConfigList();
   renderScaleTicks();
+  syncRuleCardsUI();
   
   // Set up Network Events
   if (window.Network) {
@@ -592,13 +643,11 @@ function setupEventListeners() {
     card.addEventListener('click', () => {
       playSelectSound();
       gameConfig.rules[`rule${ruleNum}`] = !gameConfig.rules[`rule${ruleNum}`];
-      if (gameConfig.rules[`rule${ruleNum}`]) {
-        card.classList.add('enabled');
-      } else {
-        card.classList.remove('enabled');
-      }
+      syncRuleCardsUI();
     });
   });
+
+  bindClick(btnAckRuleNotice, acknowledgeRuleNotice);
 
   // Start Game Button
   bindClick(btnStartGame, startGame);
@@ -637,6 +686,8 @@ function setupEventListeners() {
   bindClick(document.getElementById('btn-restart-game'), () => {
     playSelectSound();
     gameState.phase = 'setup';
+    gameState.ruleNoticeQueue = [];
+    hideRuleNoticeModal();
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   });
@@ -866,7 +917,14 @@ function startGame() {
   // Reset State
   gameState.currentRound = 1;
   gameState.history = [];
+  gameState.ruleNoticeQueue = [];
   finalRoundStingerPlayed = false;
+
+  gameConfig.rulesAtStart = {
+    rule1: gameConfig.rules.rule1,
+    rule2: gameConfig.rules.rule2,
+    rule3: gameConfig.rules.rule3
+  };
   
   // Render Arena UI baseline
   renderActiveRulesTags();
@@ -944,22 +1002,109 @@ function abortGame() {
       window.Network.broadcastAbort();
     }
     gameState.phase = 'setup';
+    gameState.ruleNoticeQueue = [];
+    hideRuleNoticeModal();
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
     switchScreen('setup');
   }
 }
 
 // Render active rules tags in sidebar
+function syncRuleCardsUI() {
+  Object.keys(ruleCards).forEach(ruleNum => {
+    const card = ruleCards[ruleNum];
+    if (!card) return;
+    if (gameConfig.rules[`rule${ruleNum}`]) {
+      card.classList.add('enabled');
+    } else {
+      card.classList.remove('enabled');
+    }
+  });
+}
+
+function getNextUnmarkedEliminationRule() {
+  for (const ruleNum of [1, 2, 3]) {
+    const key = `rule${ruleNum}`;
+    if (!gameConfig.rulesAtStart[key] && !gameConfig.rules[key]) {
+      return ruleNum;
+    }
+  }
+  return null;
+}
+
+function addEliminationRules(eliminationCount) {
+  const added = [];
+  for (let i = 0; i < eliminationCount; i++) {
+    const ruleNum = getNextUnmarkedEliminationRule();
+    if (!ruleNum) break;
+    gameConfig.rules[`rule${ruleNum}`] = true;
+    added.push(ruleNum);
+  }
+  if (added.length > 0) {
+    renderActiveRulesTags();
+    syncRuleCardsUI();
+  }
+  return added;
+}
+
+function showRuleNotice(ruleNum, options = {}) {
+  const def = RULE_DEFINITIONS[ruleNum];
+  if (!def || !ruleNoticeModal) return;
+
+  if (ruleNoticeTitle) ruleNoticeTitle.textContent = def.name;
+  if (ruleNoticeDesc) ruleNoticeDesc.textContent = def.desc;
+  if (ruleNoticeContext) {
+    ruleNoticeContext.textContent = `A node was eliminated. This protocol was not selected at start and is now active. ${def.trigger}`;
+  }
+
+  ruleNoticeModal.style.display = 'flex';
+  if (btnAckRuleNotice) {
+    btnAckRuleNotice.style.display = isOnlineClient() ? 'none' : 'block';
+  }
+
+  if (options.announce) {
+    playWarningSound();
+    vibrate([60, 40, 80]);
+  }
+}
+
+function hideRuleNoticeModal() {
+  if (ruleNoticeModal) ruleNoticeModal.style.display = 'none';
+}
+
+function acknowledgeRuleNotice() {
+  if (isOnlineClient()) return;
+  playSelectSound();
+
+  if (!gameState.ruleNoticeQueue || gameState.ruleNoticeQueue.length === 0) {
+    hideRuleNoticeModal();
+    return;
+  }
+
+  gameState.ruleNoticeQueue.shift();
+
+  if (gameState.ruleNoticeQueue.length > 0) {
+    showRuleNotice(gameState.ruleNoticeQueue[0], { announce: true });
+  } else {
+    hideRuleNoticeModal();
+    finishMeltdownAndAdvanceRound();
+  }
+
+  if (isOnlineHost()) {
+    window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+  }
+}
+
 function renderActiveRulesTags() {
   activeRulesTags.innerHTML = '';
   if (gameConfig.rules.rule1) {
-    activeRulesTags.innerHTML += `<span class="rule-tag">Disqual. Override</span>`;
+    activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[1].shortTag}</span>`;
   }
   if (gameConfig.rules.rule2) {
-    activeRulesTags.innerHTML += `<span class="rule-tag">Precision Spike</span>`;
+    activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[2].shortTag}</span>`;
   }
   if (gameConfig.rules.rule3) {
-    activeRulesTags.innerHTML += `<span class="rule-tag">Zero-One Override</span>`;
+    activeRulesTags.innerHTML += `<span class="rule-tag">${RULE_DEFINITIONS[3].shortTag}</span>`;
   }
   if (activeRulesTags.innerHTML === '') {
     activeRulesTags.innerHTML = `<span class="rule-tag" style="background: rgba(255,255,255,0.03); color: var(--text-secondary); border-color: rgba(255,255,255,0.05)">No Active Overrides</span>`;
@@ -1641,7 +1786,7 @@ function prepareNextRoundOrFinish() {
       p.stability = -10;
       meltdownsHappened = true;
       meltdownCount++;
-      
+
       // Update UI card to show meltdown
       updatePlayerLiquidUI(p.id);
     }
@@ -1660,8 +1805,25 @@ function prepareNextRoundOrFinish() {
     }, heavy ? 800 : 500);
 
     arenaInstructions.textContent = "Critical alert: Core Stability exceeded limits! Triggered coolant overflow purge.";
+
+    const addedRules = addEliminationRules(meltdownCount);
+    if (addedRules.length > 0) {
+      gameState.ruleNoticeQueue = addedRules;
+      gameState.phase = 'rule_notice';
+      btnArenaAction.style.display = 'none';
+      showRuleNotice(addedRules[0], { announce: true });
+
+      if (isOnlineHost()) {
+        window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
+      }
+      return;
+    }
   }
 
+  finishMeltdownAndAdvanceRound();
+}
+
+function finishMeltdownAndAdvanceRound() {
   // Count survivors
   const survivors = gameConfig.players.filter(p => p.isAlive);
 
@@ -1673,7 +1835,7 @@ function prepareNextRoundOrFinish() {
   } else {
     // Proceed to next round setup
     gameState.currentRound++;
-    
+
     // Reset player turn choices
     gameConfig.players.forEach(p => {
       p.lastChoice = null;
@@ -1683,12 +1845,12 @@ function prepareNextRoundOrFinish() {
 
     gameState.activeHumanIndex = -1;
     gameState.phase = 'arena';
-    
+
     roundNumberLcd.textContent = `Round ${gameState.currentRound}`;
     arenaInstructions.textContent = `Round ${gameState.currentRound} setup complete. Press 'Begin Inputs' to gather values.`;
     btnArenaAction.textContent = "Begin Inputs";
     btnArenaAction.style.display = 'block';
-    
+
     // Clear plots and LCDs
     resetScalePlot();
     lcdAverage.textContent = '--.--';
@@ -1700,7 +1862,7 @@ function prepareNextRoundOrFinish() {
       badge.textContent = p.isAlive ? 'WAITING' : 'OFFLINE';
       badge.className = p.isAlive ? 'node-value-badge' : 'node-value-badge disqualified';
     });
-    
+
     if (isOnlineHost()) {
       window.Network.broadcastState({ gameConfig, gameState, peerToPlayerMap });
     }
