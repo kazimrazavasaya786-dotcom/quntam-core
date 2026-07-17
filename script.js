@@ -427,6 +427,10 @@ function initApp() {
 }
 
 // Setup Event Listeners
+function bindClick(el, handler) {
+  if (el) el.addEventListener('click', handler);
+}
+
 function setupEventListeners() {
   // Multiplayer UI Controls
   const btnModeLocal = document.getElementById('btn-mode-local');
@@ -436,70 +440,82 @@ function setupEventListeners() {
   const onlineHostSection = document.getElementById('online-host-section');
   const standardSetupSections = document.getElementById('standard-setup-sections');
 
-  btnModeLocal.addEventListener('click', () => {
+  bindClick(btnModeLocal, () => {
     playSelectSound();
     btnModeLocal.className = 'btn';
     btnModeHost.className = 'btn btn-secondary';
     btnModeJoin.className = 'btn btn-secondary';
     
-    onlineJoinSection.style.display = 'none';
-    onlineHostSection.style.display = 'none';
-    standardSetupSections.style.display = 'block';
-    btnStartGame.style.display = 'block';
-    btnStartGame.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Initialize Sequence';
+    if (onlineJoinSection) onlineJoinSection.style.display = 'none';
+    if (onlineHostSection) onlineHostSection.style.display = 'none';
+    if (standardSetupSections) standardSetupSections.style.display = 'block';
+    if (btnStartGame) {
+      btnStartGame.style.display = 'block';
+      btnStartGame.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Initialize Sequence';
+    }
     if (window.Network) window.Network.goLocal();
     syncAudioToggleVisibility();
   });
 
-  btnModeHost.addEventListener('click', () => {
+  bindClick(btnModeHost, () => {
     playSelectSound();
     btnModeHost.className = 'btn';
     btnModeLocal.className = 'btn btn-secondary';
     btnModeJoin.className = 'btn btn-secondary';
     
-    onlineJoinSection.style.display = 'none';
-    onlineHostSection.style.display = 'block';
-    standardSetupSections.style.display = 'block';
-    btnStartGame.style.display = 'block';
-    btnStartGame.innerHTML = 'Start Online Game';
+    if (onlineJoinSection) onlineJoinSection.style.display = 'none';
+    if (onlineHostSection) onlineHostSection.style.display = 'block';
+    if (standardSetupSections) standardSetupSections.style.display = 'block';
+    if (btnStartGame) {
+      btnStartGame.style.display = 'block';
+      btnStartGame.innerHTML = 'Start Online Game';
+    }
 
-    const hostName = document.getElementById('host-player-name').value.trim() || 'Host';
+    const hostNameInput = document.getElementById('host-player-name');
+    const hostName = (hostNameInput && hostNameInput.value.trim()) || 'Host';
     if (window.Network) {
       window.Network.startHosting(hostName);
     }
     syncAudioToggleVisibility();
   });
 
-  btnModeJoin.addEventListener('click', () => {
+  bindClick(btnModeJoin, () => {
     playSelectSound();
     btnModeJoin.className = 'btn';
     btnModeLocal.className = 'btn btn-secondary';
     btnModeHost.className = 'btn btn-secondary';
     
-    onlineJoinSection.style.display = 'block';
-    onlineHostSection.style.display = 'none';
-    standardSetupSections.style.display = 'none';
-    btnStartGame.style.display = 'none';
-    document.getElementById('btn-join-room').disabled = false;
-    document.getElementById('join-status-msg').textContent = '';
+    if (onlineJoinSection) onlineJoinSection.style.display = 'block';
+    if (onlineHostSection) onlineHostSection.style.display = 'none';
+    if (standardSetupSections) standardSetupSections.style.display = 'none';
+    if (btnStartGame) btnStartGame.style.display = 'none';
+    const joinBtn = document.getElementById('btn-join-room');
+    if (joinBtn) joinBtn.disabled = false;
+    const joinMsg = document.getElementById('join-status-msg');
+    if (joinMsg) joinMsg.textContent = '';
     renderLobbyList('join-lobby-list', []);
     if (window.Network) window.Network.goLocal();
     stopGameMusic();
     syncAudioToggleVisibility();
   });
 
-  document.getElementById('btn-join-room').addEventListener('click', () => {
+  bindClick(document.getElementById('btn-join-room'), () => {
     playSelectSound();
     unlockAudio();
-    const code = document.getElementById('join-room-code').value.trim();
-    const name = document.getElementById('join-player-name').value.trim() || 'Remote Node';
+    const codeInput = document.getElementById('join-room-code');
+    const nameInput = document.getElementById('join-player-name');
+    const code = codeInput ? codeInput.value.trim() : '';
+    const name = (nameInput && nameInput.value.trim()) || 'Remote Node';
     if (code.length >= 4) {
       const msg = document.getElementById('join-status-msg');
-      msg.style.color = 'var(--accent-orange)';
-      msg.textContent = 'Connecting to ' + code.toUpperCase() + '...';
+      if (msg) {
+        msg.style.color = 'var(--accent-orange)';
+        msg.textContent = 'Connecting to ' + code.toUpperCase() + '...';
+      }
       if (window.Network) window.Network.joinRoom(code, name);
     } else {
-      document.getElementById('join-status-msg').textContent = 'Enter the 4-letter room code';
+      const msg = document.getElementById('join-status-msg');
+      if (msg) msg.textContent = 'Enter the 4-letter room code';
     }
   });
 
@@ -507,7 +523,8 @@ function setupEventListeners() {
   if (copyBtn) {
     copyBtn.addEventListener('click', async () => {
       playSelectSound();
-      const code = document.getElementById('host-room-code').textContent;
+      const codeEl = document.getElementById('host-room-code');
+      const code = codeEl ? codeEl.textContent : '';
       if (!code || code === '----') return;
       try {
         await navigator.clipboard.writeText(code);
@@ -527,9 +544,10 @@ function setupEventListeners() {
       }
     });
   }
-  // Node Count Buttons
+
+  // Node Count Buttons (3-node button is optional — old HTML without it still works)
   function setActiveNodeCountBtn(activeBtn) {
-    [btnNodes3, btnNodes4, btnNodes5].forEach(btn => {
+    [btnNodes3, btnNodes4, btnNodes5].filter(Boolean).forEach(btn => {
       if (btn === activeBtn) {
         btn.classList.add('btn');
         btn.classList.remove('btn-secondary');
@@ -540,21 +558,21 @@ function setupEventListeners() {
     });
   }
 
-  btnNodes3.addEventListener('click', () => {
+  bindClick(btnNodes3, () => {
     playSelectSound();
     gameConfig.nodeCount = 3;
     setActiveNodeCountBtn(btnNodes3);
     renderNodeConfigList();
   });
 
-  btnNodes4.addEventListener('click', () => {
+  bindClick(btnNodes4, () => {
     playSelectSound();
     gameConfig.nodeCount = 4;
     setActiveNodeCountBtn(btnNodes4);
     renderNodeConfigList();
   });
 
-  btnNodes5.addEventListener('click', () => {
+  bindClick(btnNodes5, () => {
     playSelectSound();
     gameConfig.nodeCount = 5;
     setActiveNodeCountBtn(btnNodes5);
@@ -563,49 +581,54 @@ function setupEventListeners() {
 
   // Rule Cards Click Toggles
   Object.keys(ruleCards).forEach(ruleNum => {
-    ruleCards[ruleNum].addEventListener('click', () => {
+    const card = ruleCards[ruleNum];
+    if (!card) return;
+    card.addEventListener('click', () => {
       playSelectSound();
       gameConfig.rules[`rule${ruleNum}`] = !gameConfig.rules[`rule${ruleNum}`];
       if (gameConfig.rules[`rule${ruleNum}`]) {
-        ruleCards[ruleNum].classList.add('enabled');
+        card.classList.add('enabled');
       } else {
-        ruleCards[ruleNum].classList.remove('enabled');
+        card.classList.remove('enabled');
       }
     });
   });
 
   // Start Game Button
-  btnStartGame.addEventListener('click', startGame);
+  bindClick(btnStartGame, startGame);
 
   // Turn Screen Actions
-  btnAccessConfirm.addEventListener('click', () => {
+  bindClick(btnAccessConfirm, () => {
     playSelectSound();
     btnAccessConfirm.style.display = 'none';
     turnPrompt.style.display = 'none';
     turnInputControls.style.display = 'block';
   });
 
-  nodeInputSlider.addEventListener('input', (e) => {
-    sliderValDisplay.textContent = e.target.value;
-  });
+  if (nodeInputSlider) {
+    nodeInputSlider.addEventListener('input', (e) => {
+      sliderValDisplay.textContent = e.target.value;
+    });
+  }
 
-  btnLockInput.addEventListener('click', handleLockInput);
+  bindClick(btnLockInput, handleLockInput);
 
   // Arena Screen Actions
-  btnArenaAction.addEventListener('click', handleArenaAction);
-  btnAbortGame.addEventListener('click', abortGame);
+  bindClick(btnArenaAction, handleArenaAction);
+  bindClick(btnAbortGame, abortGame);
 
   const btnToggleLogs = document.getElementById('btn-toggle-logs');
   if (btnToggleLogs) {
     btnToggleLogs.addEventListener('click', () => {
       const card = btnToggleLogs.closest('.logs-card');
+      if (!card) return;
       const open = card.classList.toggle('logs-open');
       btnToggleLogs.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
 
   // Victory Screen Actions
-  document.getElementById('btn-restart-game').addEventListener('click', () => {
+  bindClick(document.getElementById('btn-restart-game'), () => {
     playSelectSound();
     gameState.phase = 'setup';
     document.body.classList.remove('nodes-3', 'nodes-4', 'nodes-5');
@@ -613,14 +636,13 @@ function setupEventListeners() {
   });
 
   // Audio Toggle Button
-  audioToggleBtn.addEventListener('click', () => {
+  bindClick(audioToggleBtn, () => {
     audioMuted = !audioMuted;
     if (audioMuted) {
       audioToggleBtn.classList.add('muted');
       audioToggleBtn.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="audio-icon-off"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v6a3 3 0 0 0 5.12 2.12M18.36 5.64A9 9 0 0 1 20.1 15"></path><path d="M11 5L6 9H2v6h4l5 4V5z"></path></svg>
       `;
-      // Stop tension music when muted
       if (window.quantumAudio) window.quantumAudio.stopTensionMusic();
     } else {
       audioToggleBtn.classList.remove('muted');
@@ -630,7 +652,6 @@ function setupEventListeners() {
       if (canPlayAudio()) {
         window.quantumAudio.init();
         window.quantumAudio.playSelect();
-        // Resume tension music if game is in progress
         if (gameState.phase !== 'setup' && gameState.phase !== 'game_over') {
           startGameMusic();
         }
@@ -639,14 +660,14 @@ function setupEventListeners() {
   });
 
   // Protocols Modal Events
-  btnProtocols.addEventListener('click', () => {
+  bindClick(btnProtocols, () => {
     playSelectSound();
-    protocolsModal.style.display = 'flex';
+    if (protocolsModal) protocolsModal.style.display = 'flex';
   });
 
-  btnCloseProtocols.addEventListener('click', () => {
+  bindClick(btnCloseProtocols, () => {
     playSelectSound();
-    protocolsModal.style.display = 'none';
+    if (protocolsModal) protocolsModal.style.display = 'none';
   });
 }
 
@@ -771,6 +792,7 @@ function renderScaleTicks() {
 
 // Render Setup Player inputs dynamically
 function renderNodeConfigList() {
+  if (!nodeConfigList) return;
   nodeConfigList.innerHTML = '';
   for (let i = 0; i < gameConfig.nodeCount; i++) {
     const row = document.createElement('div');
