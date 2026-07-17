@@ -431,6 +431,19 @@ function bindClick(el, handler) {
   if (el) el.addEventListener('click', handler);
 }
 
+function setActiveNodeCountBtn(activeBtn) {
+  [btnNodes3, btnNodes4, btnNodes5].filter(Boolean).forEach(btn => {
+    btn.classList.add('btn', 'btn-nodes');
+    if (btn === activeBtn) {
+      btn.classList.remove('btn-secondary');
+      btn.setAttribute('aria-pressed', 'true');
+    } else {
+      btn.classList.add('btn-secondary');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+  });
+}
+
 function setupEventListeners() {
   // Multiplayer UI Controls
   const btnModeLocal = document.getElementById('btn-mode-local');
@@ -546,18 +559,6 @@ function setupEventListeners() {
   }
 
   // Node Count Buttons (3-node button is optional — old HTML without it still works)
-  function setActiveNodeCountBtn(activeBtn) {
-    [btnNodes3, btnNodes4, btnNodes5].filter(Boolean).forEach(btn => {
-      if (btn === activeBtn) {
-        btn.classList.add('btn');
-        btn.classList.remove('btn-secondary');
-      } else {
-        btn.classList.add('btn-secondary');
-        btn.classList.remove('btn');
-      }
-    });
-  }
-
   bindClick(btnNodes3, () => {
     playSelectSound();
     gameConfig.nodeCount = 3;
@@ -578,6 +579,11 @@ function setupEventListeners() {
     setActiveNodeCountBtn(btnNodes5);
     renderNodeConfigList();
   });
+
+  // Highlight default node count on load
+  const defaultNodeBtn = gameConfig.nodeCount === 3 ? btnNodes3
+    : gameConfig.nodeCount === 4 ? btnNodes4 : btnNodes5;
+  if (defaultNodeBtn) setActiveNodeCountBtn(defaultNodeBtn);
 
   // Rule Cards Click Toggles
   Object.keys(ruleCards).forEach(ruleNum => {

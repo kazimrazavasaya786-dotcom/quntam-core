@@ -1257,12 +1257,34 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .nodes-count-row {
   flex-wrap: wrap;
-  justify-content: center;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.nodes-count-label {
+  flex: 0 0 100%;
+  margin-bottom: 0.15rem;
+}
+
+.nodes-count-buttons {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 0.5rem;
+  width: 100%;
 }
 
 .nodes-count-row .btn-nodes {
-  flex: 1 1 auto;
-  min-width: 88px;
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  padding: 0.65rem 0.5rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.nodes-count-row .btn-nodes[aria-pressed="true"] {
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
 }
 
 .logs-card {
@@ -1504,9 +1526,19 @@ select {
     color: var(--accent-cyan);
   }
 
+  .nodes-count-buttons {
+    width: 100%;
+    gap: 0.4rem;
+  }
+
   .nodes-count-row .btn-nodes {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto !important;
+    max-width: none !important;
     min-height: 44px;
+    padding: 0.55rem 0.35rem;
+    font-size: 0.78rem;
   }
 
   .btn-center {
